@@ -1,0 +1,204 @@
+/* 手眼标定平台 - 全局样式 */
+:root {
+  --primary-color: #1890ff;
+  --secondary-color: #f5222d;
+  --bg-color: #f5f5f5;
+  --text-color: #333333;
+  --nav-height: 60px;
+  --sidebar-width: 200px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Microsoft YaHei', 'Inter', sans-serif;
+  font-size: 14px;
+  color: var(--text-color);
+  background-color: var(--bg-color);
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* 标题样式 */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: bold;
+}
+
+h1 { font-size: 24px; }
+h2 { font-size: 20px; }
+h3 { font-size: 18px; }
+
+/* 辅助文字 */
+.text-secondary {
+  font-size: 12px;
+  color: #999;
+}
+
+/* 布局容器 */
+.layout-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  padding-top: var(--nav-height);
+}
+
+.sidebar {
+  position: fixed;
+  top: var(--nav-height);
+  left: 0;
+  width: var(--sidebar-width);
+  height: calc(100vh - var(--nav-height));
+  background: #fff;
+  border-right: 1px solid #e8e8e8;
+  overflow-y: auto;
+}
+
+.content-area {
+  margin-left: var(--sidebar-width);
+  flex: 1;
+  padding: 20px;
+  min-height: calc(100vh - var(--nav-height));
+}
+
+/* Element Plus 主题色覆盖 */
+.el-button--primary {
+  --el-button-bg-color: var(--primary-color);
+  --el-button-border-color: var(--primary-color);
+}
+
+.el-menu--horizontal > .el-menu-item.is-active {
+  border-bottom: 2px solid var(--primary-color);
+  color: var(--primary-color);
+}
+
+/* 页面标题区域 */
+.page-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.page-header h2 {
+  color: var(--text-color);
+}
+
+/* 卡片通用样式 */
+.content-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 步骤条样式 */
+.step-container {
+  padding: 20px 0;
+}
+
+/* 引导步骤高亮 */
+.step-active {
+  color: var(--primary-color);
+}
+
+.step-completed {
+  color: #52c41a;
+}
+
+/* 操作按钮区域 */
+.action-buttons {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* 状态指示 */
+.status-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-waiting {
+  background: #d9d9d9;
+}
+
+.status-processing {
+  background: var(--primary-color);
+  animation: pulse 1.5s infinite;
+}
+
+.status-success {
+  background: #52c41a;
+}
+
+.status-error {
+  background: var(--secondary-color);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* 进度条 */
+.progress-info {
+  margin: 15px 0;
+  font-size: 14px;
+}
+
+/* 图片预览区域 */
+.image-preview {
+  width: 100%;
+  max-width: 640px;
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  background: #000;
+}
+
+.image-preview img {
+  width: 100%;
+  display: block;
+}
+
+/* 说明文字 */
+.instruction-box {
+  background: #f0f7ff;
+  border-left: 4px solid var(--primary-color);
+  padding: 15px;
+  margin: 15px 0;
+  border-radius: 0 4px 4px 0;
+}
+
+.instruction-box h4 {
+  color: var(--primary-color);
+  margin-bottom: 8px;
+}
+
+/* 结果展示 */
+.result-box {
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 4px;
+  padding: 20px;
+  margin: 15px 0;
+}
+
+.result-box.error {
+  background: #fff1f0;
+  border-color: #ffa39e;
+}
