@@ -201,9 +201,7 @@ class HandEyeCalibrator:
         method_map = {
             "TSAI": cv2.CALIB_HAND_EYE_TSAI,
             "PARK": cv2.CALIB_HAND_EYE_PARK,
-            "HORAUD": cv2.CALIB_HAND_EYE_HORAUD,
-            "DANIILIDIS": cv2.CALIB_HAND_EYE_DANIILIDIS,
-            "NEGAR": cv2.CALIB_HAND_EYE_NEGAR
+            "HORAUD": cv2.CALIB_HAND_EYE_HORAUD
         }
 
         if method not in method_map:

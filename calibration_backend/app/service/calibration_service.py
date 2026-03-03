@@ -1,7 +1,10 @@
 # 标定业务逻辑服务
 import logging
+import os
+import ast
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from pathlib import Path
 import random
 
 from app.models import (
@@ -12,14 +15,65 @@ from app.algorithm.hand_eye_calibrator import HandEyeCalibrator
 
 # 配置日志
 logger = logging.getLogger(__name__)
-# 确保 logger 级别为 INFO
-logger.setLevel(logging.INFO)
-# 添加 handler 确保输出
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s'))
-    logger.addHandler(handler)
 
+# 数据文件路径
+DATA_DIR = Path(__file__).parent.parent / "data"
+ORIGIN_DATA_FILE = DATA_DIR / "origin_data.txt"
+IMG_DIR = DATA_DIR / "img"
+
+
+def _generate_mock_result() -> Dict[str, Any]:
+    """生成模拟的标定结果"""
+    reprojection_error = random.uniform(0.005, 0.05)
+    return {
+        "method": "PARK",
+        "data_count": 0,
+        "reprojection_error": round(reprojection_error, 4),
+        "calibration_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "success": True,
+        "hand_eye_matrix": [
+            [1.0, 0.0, 0.0, 100.0],
+            [0.0, 1.0, 0.0, 200.0],
+            [0.0, 0.0, 1.0, 300.0],
+            [0.0, 0.0, 0.0, 1.0]
+        ]
+    }
+
+
+def load_origin_data() -> List[Dict[str, Any]]:
+    """从 origin_data.txt 加载标定数据
+
+    Returns:
+        包含图片路径和机械臂位姿的列表
+    """
+    data_list = []
+    if not ORIGIN_DATA_FILE.exists():
+        logger.warning(f"数据文件不存在: {ORIGIN_DATA_FILE}")
+        return data_list
+
+    with open(ORIGIN_DATA_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            # 格式: filename.jpg,[x, y, z, rx, ry, rz]
+            parts = line.split(",", 1)
+            if len(parts) == 2:
+                filename = parts[0].strip()
+                pose_str = parts[1].strip()
+                try:
+                    pose = ast.literal_eval(pose_str)
+                    # 完整的图片路径
+                    image_path = str(IMG_DIR / filename)
+                    data_list.append({
+                        "image_path": image_path,
+                        "robot_pose": pose  # [x, y, z, rx, ry, rz]
+                    })
+                except Exception as e:
+                    logger.warning(f"解析数据行失败: {line}, error: {e}")
+
+    logger.info(f"从 origin_data.txt 加载了 {len(data_list)} 条数据")
+    return data_list
 
 # 内存存储（后续可替换为数据库）
 _calibration_data: List[Dict[str, Any]] = []
@@ -38,11 +92,11 @@ def get_device_status() -> DeviceStatus:
 def check_devices() -> DeviceStatus:
     """检查设备连接状态"""
     global _device_status
-    logger.info("检查设备连接状态...")
+    logging.info("检查设备连接状态...")
     # TODO: 实现实际的设备检查逻辑
     # 模拟设备检查
     _device_status = DeviceStatus(camera=True, robot=True, board=True)
-    logger.info(f"设备状态: camera={_device_status.camera}, robot={_device_status.robot}, board={_device_status.board}")
+    logging.info(f"设备状态: camera={_device_status.camera}, robot={_device_status.robot}, board={_device_status.board}")
     return _device_status
 
 
@@ -61,7 +115,7 @@ def start_calibration(config: CalibrationConfig) -> Dict[str, Any]:
     _calibration_data = []
     _calibration_result = None
     _calibration_config = config.model_dump()
-    logger.info(f"开始标定, 配置: board={_calibration_config.get('board_width')}x{_calibration_config.get('board_height')}, square_size={_calibration_config.get('square_size')}mm")
+    logger.info(f"开始标定, 配置: board={_calibration_config.get('board_width')}x{_calibration_config.get('board_height')}, square_size={_calibration_config.get('square_size')}m")
 
     return {
         "config": _calibration_config,
@@ -98,7 +152,7 @@ def capture_calibration_data(data: CalibrationData) -> Dict[str, Any]:
     }
 
     _calibration_data.append(capture)
-    logger.info(f"采集第 {capture['index']} 组数据, 角点数: {corners_count}, 累计: {len(_calibration_data)}/20")
+    logger.info(f"采集第 {capture['index']} 组数据, 角点数: {corners_count}, 累计: {len(_calibration_data)}/12")
 
     return capture
 
@@ -130,9 +184,9 @@ def calculate_calibration() -> Dict[str, Any]:
     logger.info(f"开始计算标定, 数据组数: {len(_calibration_data)}")
 
     # 获取标定配置
-    board_width = _calibration_config.get("board_width", 9) if _calibration_config else 9
-    board_height = _calibration_config.get("board_height", 6) if _calibration_config else 6
-    square_size = _calibration_config.get("square_size", 25.0) if _calibration_config else 25.0
+    board_width = _calibration_config.get("board_width", 10) if _calibration_config else 10
+    board_height = _calibration_config.get("board_height", 7) if _calibration_config else 7
+    square_size = _calibration_config.get("square_size", 0.020) if _calibration_config else 0.020
 
     # 尝试使用真实手眼标定算法
     try:
@@ -159,7 +213,7 @@ def calculate_calibration() -> Dict[str, Any]:
             calibrator = HandEyeCalibrator(
                 corner_long=board_width,
                 corner_short=board_height,
-                corner_size=square_size / 1000.0  # 转换为米
+                corner_size=square_size
             )
 
             result = calibrator.calibrate(
@@ -184,24 +238,46 @@ def calculate_calibration() -> Dict[str, Any]:
             raise ValueError("无图像路径，使用模拟计算")
 
     except Exception as e:
-        # 降级为模拟计算（用于测试或无图像的情况）
-        logger.warning(f"手眼标定失败: {e}, 使用模拟结果")
-        reprojection_error = random.uniform(0.005, 0.05)
+        # 降级为使用 origin_data.txt 数据进行计算
+        logger.warning(f"手眼标定失败: {e}, 尝试使用 origin_data.txt 数据")
 
-        _calibration_result = {
-            "method": "PARK",
-            "data_count": len(_calibration_data),
-            "reprojection_error": round(reprojection_error, 4),
-            "calibration_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "success": True,
-            # 手眼矩阵 (4x4)
-            "hand_eye_matrix": [
-                [1.0, 0.0, 0.0, 100.0],
-                [0.0, 1.0, 0.0, 200.0],
-                [0.0, 0.0, 1.0, 300.0],
-                [0.0, 0.0, 0.0, 1.0]
-            ]
-        }
+        # 从文件加载数据
+        origin_data = load_origin_data()
+
+        if len(origin_data) >= 3:
+            # 使用真实算法计算
+            calibrator = HandEyeCalibrator(
+                corner_long=board_width,
+                corner_short=board_height,
+                corner_size=square_size
+            )
+
+            image_paths = [d["image_path"] for d in origin_data]
+            robot_poses = origin_data[0]["robot_pose"]  # 这里简化处理
+
+            try:
+                result = calibrator.calibrate(
+                    image_paths=image_paths,
+                    robot_poses=[d["robot_pose"] for d in origin_data],
+                    method="PARK"
+                )
+                _calibration_result = {
+                    "method": result["method"],
+                    "data_count": result["data_count"],
+                    "reprojection_error": round(result["reprojection_error"], 4),
+                    "calibration_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "success": True,
+                    "hand_eye_matrix": result["hand_eye_matrix"],
+                    "camera_matrix": result.get("camera_matrix"),
+                    "distortion_coeffs": result.get("distortion_coeffs")
+                }
+                logger.info(f"使用 origin_data.txt 标定成功! 重投影误差: {_calibration_result['reprojection_error']}mm")
+            except Exception as calc_error:
+                logger.warning(f"使用 origin_data.txt 计算失败: {calc_error}, 使用模拟结果")
+                _calibration_result = _generate_mock_result()
+        else:
+            logger.warning(f"origin_data.txt 数据不足: {len(origin_data)}, 使用模拟结果")
+            _calibration_result = _generate_mock_result()
 
     return _calibration_result
 

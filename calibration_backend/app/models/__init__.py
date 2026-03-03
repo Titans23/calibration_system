@@ -82,7 +82,7 @@ class CalibrationData(BaseModel):
 class CalibrationConfig(BaseModel):
     """标定配置"""
     board_type: str = "chessboard"
-    board_width: int = 9
-    board_height: int = 6
-    square_size: float = 25.0  # mm
+    board_width: int = 10
+    board_height: int = 7
+    square_size: float = 0.020  # m
     capture_count: int = 12

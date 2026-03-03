@@ -66,10 +66,11 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    logging.info("========== 服务启动测试 ==========")
+    # 直接运行，不用 reload
+    import uvicorn
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True
+        log_level="info"
     )

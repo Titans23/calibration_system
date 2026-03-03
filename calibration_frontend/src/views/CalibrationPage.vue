@@ -69,6 +69,22 @@
           </div>
         </div>
 
+        <!-- 标定板参数配置 -->
+        <div class="board-config">
+          <h4>标定板参数</h4>
+          <el-form :inline="true" label-width="100px">
+            <el-form-item label="角点列数">
+              <el-input-number v-model="boardConfig.board_width" :min="5" :max="15" />
+            </el-form-item>
+            <el-form-item label="角点行数">
+              <el-input-number v-model="boardConfig.board_height" :min="4" :max="12" />
+            </el-form-item>
+            <el-form-item label="方格尺寸(m)">
+              <el-input-number v-model="boardConfig.square_size" :min="0.001" :max="0.1" :step="0.001" :precision="3" />
+            </el-form-item>
+          </el-form>
+        </div>
+
         <div class="action-buttons">
           <el-button type="primary" size="large" @click="checkDevices" :loading="checking">
             <el-icon><Refresh /></el-icon>
@@ -234,6 +250,13 @@ const deviceStatus = reactive({
 })
 const checking = ref(false)
 
+// 标定板参数（用户可修改）
+const boardConfig = reactive({
+  board_width: 10,
+  board_height: 7,
+  square_size: 0.02  // 单位: 米
+})
+
 // 采集状态
 const capturing = ref(false)
 const capturedCount = ref(0)
@@ -285,9 +308,9 @@ const startCalibration = async () => {
   try {
     await api.startCalibration({
       board_type: 'chessboard',
-      board_width: 9,
-      board_height: 6,
-      square_size: 25.0,
+      board_width: boardConfig.board_width,
+      board_height: boardConfig.board_height,
+      square_size: boardConfig.square_size,
       capture_count: 12
     })
     currentStep.value = 1
@@ -411,6 +434,17 @@ const goToVerification = () => {
 
 .device-list {
   margin: 20px 0;
+}
+
+.board-config {
+  margin: 20px 0;
+  padding: 20px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.board-config h4 {
+  margin-bottom: 15px;
 }
 
 .device-item {
