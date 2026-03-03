@@ -2,16 +2,37 @@
 手眼标定平台 - 后端服务
 基于 FastAPI 构建
 """
+import logging
+import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时配置日志（uvicorn reload 时也会执行）
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)],
+        force=True
+    )
+    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger("app.service").setLevel(logging.INFO)
+    logging.info("应用启动")
+    yield
+    logging.info("应用关闭")
 
 from app.routes import calibration, verification
 
 app = FastAPI(
     title="手眼标定平台 API",
     description="提供手眼标定、验证等功能的 RESTful API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # 配置 CORS
@@ -45,6 +66,7 @@ async def health_check():
 
 
 if __name__ == "__main__":
+    logging.info("========== 服务启动测试 ==========")
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",

@@ -76,7 +76,7 @@ class CalibrationData(BaseModel):
     """标定数据组"""
     robot_pose: RobotPose
     image_corners: List[List[float]]
-    timestamp: str
+    timestamp: Optional[str] = None
 
 
 class CalibrationConfig(BaseModel):

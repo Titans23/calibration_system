@@ -1,6 +1,6 @@
 # 标定相关 API 路由
 from fastapi import APIRouter, HTTPException
-
+import logging
 from app.models import (
     CalibrationConfig, CalibrationData
 )
@@ -8,7 +8,7 @@ from app.service import calibration_service
 
 router = APIRouter(prefix="/calibration", tags=["标定"])
 
-
+logger = logging.getLogger(__name__)
 @router.get("/status")
 async def get_status():
     """获取设备状态"""

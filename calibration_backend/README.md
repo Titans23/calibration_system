@@ -7,7 +7,7 @@
 - FastAPI 0.109+
 - Uvicorn 0.27+
 - Pydantic 2.12+
-- NumPy 2.4+
+- NumPy 1.26+
 - OpenCV-Python 4.9+
 
 ## 项目结构
