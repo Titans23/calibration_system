@@ -2,16 +2,21 @@
 import logging
 import os
 import ast
+import cv2
+import base64
+import io
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-import random
+import numpy as np
 
 from app.models import (
     DeviceStatus, CalibrationResult, CalibrationConfig,
     CalibrationData, RobotPose
 )
 from app.algorithm.hand_eye_calibrator import HandEyeCalibrator
+from app.hardware.camera_device import CameraDevice, MockCameraDevice
+from app.hardware.robot_device import RobotDevice, RobotPose as RobotPoseClass, MockRobotDevice
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -21,24 +26,25 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 ORIGIN_DATA_FILE = DATA_DIR / "origin_data.txt"
 IMG_DIR = DATA_DIR / "img"
 
+# 设备实例（单例模式）
+_camera_device: Optional[CameraDevice] = None
+_robot_device: Optional[RobotDevice] = None
 
-def _generate_mock_result() -> Dict[str, Any]:
-    """生成模拟的标定结果"""
-    reprojection_error = random.uniform(0.005, 0.05)
-    return {
-        "method": "PARK",
-        "data_count": 0,
-        "reprojection_error": round(reprojection_error, 4),
-        "calibration_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "success": True,
-        "hand_eye_matrix": [
-            [1.0, 0.0, 0.0, 100.0],
-            [0.0, 1.0, 0.0, 200.0],
-            [0.0, 0.0, 1.0, 300.0],
-            [0.0, 0.0, 0.0, 1.0]
-        ]
-    }
 
+def get_camera_device() -> CameraDevice:
+    """获取相机设备实例（单例）"""
+    global _camera_device
+    if _camera_device is None:
+        _camera_device = MockCameraDevice()  # 实际项目中替换为真实相机类
+    return _camera_device
+
+
+def get_robot_device() -> RobotDevice:
+    """获取机器人设备实例（单例）"""
+    global _robot_device
+    if _robot_device is None:
+        _robot_device = MockRobotDevice()  # 实际项目中替换为真实机器人类
+    return _robot_device
 
 def load_origin_data() -> List[Dict[str, Any]]:
     """从 origin_data.txt 加载标定数据
@@ -93,9 +99,34 @@ def check_devices() -> DeviceStatus:
     """检查设备连接状态"""
     global _device_status
     logging.info("检查设备连接状态...")
-    # TODO: 实现实际的设备检查逻辑
-    # 模拟设备检查
-    _device_status = DeviceStatus(camera=True, robot=True, board=True)
+
+    # 获取设备实例
+    camera = get_camera_device()
+    robot = get_robot_device()
+
+    # 连接相机
+    camera_connected = camera.connect()
+    if camera_connected:
+        camera.start_grabbing()
+
+    # 连接机器人
+    robot_connected = robot.connect()
+
+    # 检查标定板（通过相机检测）
+    board_detected = False
+    if camera_connected:
+        frame = camera.get_frame()
+        if frame is not None:
+            board_width = _calibration_config.get("board_width", 10) if _calibration_config else 10
+            board_height = _calibration_config.get("board_height", 7) if _calibration_config else 7
+            detected, _ = camera.detect_calibration_board(frame, board_width, board_height)
+            board_detected = detected
+
+    _device_status = DeviceStatus(
+        camera=camera_connected,
+        robot=robot_connected,
+        board=board_detected
+    )
     logging.info(f"设备状态: camera={_device_status.camera}, robot={_device_status.robot}, board={_device_status.board}")
     return _device_status
 
@@ -138,21 +169,55 @@ def capture_calibration_data(data: CalibrationData) -> Dict[str, Any]:
         logger.warning("已达到最大采集数量 20")
         raise ValueError("已达到最大采集数量")
 
-    # TODO: 实现实际的图像处理和角点检测逻辑
-    # 模拟图像处理
-    corners_count = random.randint(50, 54)
+    # 获取设备
+    camera = get_camera_device()
+    robot = get_robot_device()
+
+    # 获取当前机械臂位姿（如果前端没有提供，则从机器人获取）
+    if data.robot_pose is not None:
+        robot_pose = data.robot_pose.model_dump()
+    else:
+        current_pose = robot.get_current_pose()
+        if current_pose:
+            robot_pose = current_pose.to_dict()
+        else:
+            raise ValueError("无法获取机械臂位姿")
+
+    # 捕获图像
+    frame = camera.get_frame()
+    if frame is None:
+        raise ValueError("无法获取相机图像")
+
+    # 检测标定板角点
+    board_width = _calibration_config.get("board_width", 10) if _calibration_config else 10
+    board_height = _calibration_config.get("board_height", 7) if _calibration_config else 7
+
+    detected, corners = camera.detect_calibration_board(frame, board_width, board_height)
+
+    if not detected:
+        raise ValueError("未检测到标定板")
+
+    corners_count = len(corners) if corners is not None else 0
+
+    # 保存图像
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"calib_{timestamp_str}_{len(_calibration_data) + 1}.jpg"
+    image_path = str(IMG_DIR / filename)
+    os.makedirs(IMG_DIR, exist_ok=True)
+    camera.save_image(frame, image_path)
 
     capture = {
         "index": len(_calibration_data) + 1,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "position": f"X:{data.robot_pose.x:.1f} Y:{data.robot_pose.y:.1f} Z:{data.robot_pose.z:.1f} R:{data.robot_pose.rx:.1f}",
+        "position": f"X:{robot_pose.get('x', 0):.1f} Y:{robot_pose.get('y', 0):.1f} Z:{robot_pose.get('z', 0):.1f} R:{robot_pose.get('rx', 0):.1f}",
         "corners": corners_count,
-        "robot_pose": data.robot_pose.model_dump(),
-        "image_corners": data.image_corners
+        "robot_pose": robot_pose,
+        "image_corners": corners.tolist() if corners is not None else [],
+        "image_path": image_path
     }
 
     _calibration_data.append(capture)
-    logger.info(f"采集第 {capture['index']} 组数据, 角点数: {corners_count}, 累计: {len(_calibration_data)}/12")
+    logger.info(f"采集第 {capture['index']} 组数据, 角点数: {corners_count}, 累计: {len(_calibration_data)}/20")
 
     return capture
 
@@ -273,12 +338,10 @@ def calculate_calibration() -> Dict[str, Any]:
                 }
                 logger.info(f"使用 origin_data.txt 标定成功! 重投影误差: {_calibration_result['reprojection_error']}mm")
             except Exception as calc_error:
-                logger.warning(f"使用 origin_data.txt 计算失败: {calc_error}, 使用模拟结果")
-                _calibration_result = _generate_mock_result()
+                raise ValueError(f"使用 origin_data.txt 计算失败: {calc_error}")
         else:
-            logger.warning(f"origin_data.txt 数据不足: {len(origin_data)}, 使用模拟结果")
-            _calibration_result = _generate_mock_result()
-
+            raise ValueError(f"origin_data.txt 数据不足: {len(origin_data)}")
+        
     return _calibration_result
 
 
@@ -306,3 +369,39 @@ def is_calibration_completed() -> bool:
         是否已完成标定
     """
     return _calibration_result is not None
+
+
+# ========== 相机实时预览相关 ==========
+
+def get_camera_frame() -> Optional[str]:
+    """获取当前相机帧（Base64编码）
+
+    Returns:
+        Base64编码的图像字符串，失败返回 None
+    """
+    camera = get_camera_device()
+    if camera.is_connected():
+        return camera.get_frame_base64()
+    return None
+
+
+def start_camera_stream() -> bool:
+    """启动相机采集
+
+    Returns:
+        是否成功启动
+    """
+    camera = get_camera_device()
+    if not camera.is_connected():
+        camera.connect()
+    return camera.start_grabbing()
+
+
+def stop_camera_stream() -> bool:
+    """停止相机采集
+
+    Returns:
+        是否成功停止
+    """
+    camera = get_camera_device()
+    return camera.stop_grabbing()

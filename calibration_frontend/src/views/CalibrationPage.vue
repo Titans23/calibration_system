@@ -107,7 +107,8 @@
         <!-- 实时预览 -->
         <div class="preview-section">
           <div class="preview-container">
-            <div class="preview-placeholder">
+            <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
+            <div v-else class="preview-placeholder">
               <el-icon :size="48"><VideoCamera /></el-icon>
               <p>相机实时预览</p>
             </div>
@@ -228,9 +229,10 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { io } from 'socket.io-client'
 import api from '../api'
 import {
   Camera, Connection, Picture, Refresh, ArrowLeft, ArrowRight,
@@ -238,6 +240,10 @@ import {
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
+
+// Socket.IO 连接
+let socket = null
+const cameraFrame = ref('')
 
 // 当前步骤
 const currentStep = ref(0)
@@ -287,6 +293,52 @@ const allDevicesReady = computed(() => {
   return deviceStatus.camera && deviceStatus.robot
 })
 
+// 初始化 Socket.IO 连接
+const initSocket = () => {
+  // 获取 WebSocket 地址
+  const wsProtocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
+  const wsHost = window.location.host
+  const socketUrl = `${wsProtocol}//${wsHost}`
+
+  socket = io(socketUrl, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 1000
+  })
+
+  socket.on('connect', () => {
+    console.log('Socket.IO 已连接')
+  })
+
+  socket.on('disconnect', () => {
+    console.log('Socket.IO 已断开')
+  })
+
+  socket.on('camera_frame', (data) => {
+    if (data.image) {
+      cameraFrame.value = data.image
+    }
+  })
+
+  socket.on('connected', (data) => {
+    console.log('Socket.IO 确认连接:', data)
+  })
+}
+
+// 启动相机流
+const startCameraStream = () => {
+  if (socket && socket.connected) {
+    socket.emit('start_stream')
+  }
+}
+
+// 停止相机流
+const stopCameraStream = () => {
+  if (socket && socket.connected) {
+    socket.emit('stop_stream')
+  }
+}
+
 // 检查设备 - 调用后端 API
 const checkDevices = async () => {
   checking.value = true
@@ -314,6 +366,8 @@ const startCalibration = async () => {
       capture_count: 12
     })
     currentStep.value = 1
+    // 进入采集页面后启动相机流
+    startCameraStream()
   } catch (error) {
     ElMessage.error('启动标定失败')
   }
@@ -322,6 +376,8 @@ const startCalibration = async () => {
 // 返回上一步
 const backToStep1 = () => {
   currentStep.value = 0
+  // 停止相机流
+  stopCameraStream()
 }
 
 // 采集数据 - 调用后端 API
@@ -330,18 +386,9 @@ const captureData = async () => {
 
   capturing.value = true
   try {
-    // 生成模拟的机械臂位姿数据
-    const robotPose = {
-      x: Math.random() * 200 - 100,
-      y: Math.random() * 200 - 100,
-      z: Math.random() * 200 + 100,
-      rx: Math.random() * 90 - 45,
-      ry: Math.random() * 90 - 45,
-      rz: Math.random() * 180 - 90
-    }
-
+    // 使用当前相机画面进行采集，机器人位姿从后端获取
     const res = await api.captureData({
-      robot_pose: robotPose,
+      robot_pose: null,  // 后端会从机器人获取当前位姿
       image_corners: []
     })
 
@@ -349,13 +396,13 @@ const captureData = async () => {
     capturedData.value.push({
       index: capturedCount.value,
       timestamp: res.timestamp,
-      position: `X:${robotPose.x.toFixed(1)} Y:${robotPose.y.toFixed(1)} Z:${robotPose.z.toFixed(1)} R:${robotPose.rx.toFixed(1)}`,
+      position: res.position,
       corners: res.corners
     })
 
     ElMessage.success(`已采集第 ${capturedCount.value} 组数据`)
   } catch (error) {
-    ElMessage.error('采集数据失败')
+    ElMessage.error('采集数据失败: ' + (error.message || '未知错误'))
   } finally {
     capturing.value = false
   }
@@ -375,6 +422,9 @@ const clearData = async () => {
 
 // 计算标定 - 调用后端 API
 const calculateCalibration = async () => {
+  // 停止相机流
+  stopCameraStream()
+
   currentStep.value = 2
   calculating.value = true
   calcProgress.value = 0
@@ -421,6 +471,19 @@ const retryCalibration = async () => {
 const goToVerification = () => {
   router.push('/verification')
 }
+
+// 组件挂载时初始化 Socket
+onMounted(() => {
+  initSocket()
+})
+
+// 组件卸载时清理
+onUnmounted(() => {
+  if (socket) {
+    stopCameraStream()
+    socket.disconnect()
+  }
+})
 </script>
 
 <style scoped>
@@ -489,6 +552,12 @@ const goToVerification = () => {
   background: #000;
   border-radius: 8px;
   overflow: hidden;
+}
+
+.camera-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .preview-placeholder {
