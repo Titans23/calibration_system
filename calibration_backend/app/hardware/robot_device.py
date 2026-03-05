@@ -1,7 +1,15 @@
 # 机器人设备抽象基类
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List
+import logging
+import time
 import numpy as np
+from rtde_control import RTDEControlInterface
+from rtde_receive import RTDEReceiveInterface
+
+from app.config import get_robot_config
+
+logger = logging.getLogger(__name__)
 
 
 class RobotPose:
@@ -57,13 +65,29 @@ class RobotPose:
 class RobotDevice(ABC):
     """机器人设备抽象基类，定义机械臂操作的标准接口"""
 
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化模拟机器人
+
+        Args:
+            config: 机器人配置字典，如果为 None 则从 config.yaml 加载
+        """
+        # 加载配置
+        if config is None:
+            config = get_robot_config()
+
+        self._connected = False
+        self._host = config.get('ip', '192.168.1.100')
+        self._port = config.get('port', 8080)
+        self._default_speed = config.get('default_speed', 100.0)
+        self._current_pose = RobotPose(x=100, y=0, z=200, rx=0, ry=0, rz=0)
+
     @abstractmethod
-    def connect(self, host: str = "192.168.1.100", port: int = 8080) -> bool:
+    def connect(self, host: str = None, port: int = None) -> bool:
         """连接机器人
 
         Args:
-            host: 机器人IP地址
-            port: 机器人端口
+            host: 机器人IP地址，如果为 None 则使用配置中的IP
+            port: 机器人端口，如果为 None 则使用配置中的端口
 
         Returns:
             bool: 连接是否成功
@@ -110,65 +134,25 @@ class RobotDevice(ABC):
         """
         pass
 
-    @abstractmethod
-    def move_relative(self, dx: float, dy: float, dz: float,
-                     drx: float = 0, dry: float = 0, drz: float = 0,
-                     speed: float = 100.0) -> bool:
-        """相对移动
-
-        Args:
-            dx, dy, dz: 位置增量
-            drx, dry, drz: 姿态增量
-            speed: 移动速度 (0-100)
-
-        Returns:
-            bool: 移动是否成功
-        """
-        pass
-
-    @abstractmethod
-    def get_joint_positions(self) -> Optional[List[float]]:
-        """获取关节角度
-
-        Returns:
-            Optional[List[float]]: 关节角度列表 [J1, J2, J3, J4, J5, J6]
-        """
-        pass
-
-    @abstractmethod
-    def emergency_stop(self) -> bool:
-        """紧急停止
-
-        Returns:
-            bool: 是否成功停止
-        """
-        pass
-
-    @abstractmethod
-    def clear_error(self) -> bool:
-        """清除错误状态
-
-        Returns:
-            bool: 是否成功清除
-        """
-        pass
-
 
 class MockRobotDevice(RobotDevice):
     """模拟机器人设备，用于测试和开发"""
 
-    def __init__(self):
-        self._connected = False
-        self._host = ""
-        self._port = 0
-        self._current_pose = RobotPose(x=100, y=0, z=200, rx=0, ry=0, rz=0)
-        self._joint_positions = [0, -45, 90, 0, 45, 0]  # 角度
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        super().__init__(config)
+        logger.info(f"MockRobotDevice 初始化: ip={self._host}, port={self._port}, default_speed={self._default_speed}")
+        
+    def connect(self, host: str = None, port: int = None) -> bool:
+        """模拟连接机器人
 
-    def connect(self, host: str = "192.168.1.100", port: int = 8080) -> bool:
-        """模拟连接机器人"""
-        self._host = host
-        self._port = port
+        Args:
+            host: 机器人IP，如果为 None 则使用配置中的IP
+            port: 机器人端口，如果为 None 则使用配置中的端口
+        """
+        self._host = host if host is not None else self._host
+        self._port = port if port is not None else self._port
         self._connected = True
+        logger.info(f"MockRobot 连接: {self._host}:{self._port}")
         return True
 
     def disconnect(self) -> bool:
@@ -190,26 +174,61 @@ class MockRobotDevice(RobotDevice):
             return True
         return False
 
-    def move_relative(self, dx: float, dy: float, dz: float,
-                     drx: float = 0, dry: float = 0, drz: float = 0,
-                     speed: float = 100.0) -> bool:
-        if self._connected:
-            self._current_pose.x += dx
-            self._current_pose.y += dy
-            self._current_pose.z += dz
-            self._current_pose.rx += drx
-            self._current_pose.ry += dry
-            self._current_pose.rz += drz
-            return True
-        return False
 
-    def get_joint_positions(self) -> Optional[List[float]]:
+class UR5eRobotDevice(RobotDevice):
+    """UR5e 机械臂设备实现"""
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        super().__init__(config)
+        logger.info(f"UR5eRobotDevice 初始化: ip={self._host}, port={self._port}, default_speed={self._default_speed}")
+
+    def connect(self, host: str = None, port: int = None) -> bool:
+        """模拟连接机器人
+
+        Args:
+            host: 机器人IP，如果为 None 则使用配置中的IP
+            port: 机器人端口，如果为 None 则使用配置中的端口
+        """
+        self._host = host if host is not None else self._host
+        cnt = 0
+        max_retry = 5
+        delay = 5
+        while True:
+            try:
+                logger.info("[connect_rtde] 正在连接机器人...")
+                self.rtde_c = RTDEControlInterface(self._host)
+                self.rtde_r = RTDEReceiveInterface(self._host)
+                logger.info("[connect_rtde] ✅ 连接成功")
+                self._connected = True
+                logger.info(f"UR5eRobotDevice 连接: {self._host}:{self._port}")
+                return True
+            except Exception as e:
+                logger.info(f"[connect_rtde] ❌ 连接失败: {e}")
+                if max_retry and cnt >= max_retry:
+                    raise RuntimeError("达到最大重试次数，仍无法连接机器人") from e
+                cnt += 1
+                logger.info(f"[connect_rtde] {delay}s 后重试...")
+                time.sleep(delay)
+
+
+    def disconnect(self) -> bool:
+        """断开机器人"""
+        self._connected = False
+        self.rtde_c.stopScript()
+        return True
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+    def get_current_pose(self) -> Optional[RobotPose]:
         if self._connected:
-            return self._joint_positions
+            self._current_pose = self.rtde_r.getActualTCPPose()
+            return self._current_pose
         return None
 
-    def emergency_stop(self) -> bool:
-        return True
-
-    def clear_error(self) -> bool:
-        return True
+    def move_to(self, pose: RobotPose, speed: float = 100.0) -> bool:
+        # TODO : 实现 UR5e 机械臂的移动逻辑，目前不需要
+        if self._connected:
+            self._current_pose = pose
+            return True
+        return False

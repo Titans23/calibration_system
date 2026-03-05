@@ -1,0 +1,40 @@
+# 手眼标定平台配置文件
+
+# 相机配置
+camera:
+  # 相机类型: mock, hikvision, dahua, etc.
+  type: "mock"
+  # 相机 IP 地址（真实相机使用）
+  ip: "192.168.1.64"
+  # 相机端口
+  port: 8000
+  # 曝光时间（微秒）
+  exposure: 10000.0
+  # 增益值
+  gain: 1.0
+  # 图像宽度
+  width: 640
+  # 图像高度
+  height: 480
+  # JPEG 编码质量 (1-100)
+  jpeg_quality: 70
+
+# 机器人配置
+robot:
+  # 机器人类型: mock, ur5e.
+  type: "mock"
+  # 机器人 IP 地址
+  ip: "192.168.1.100"
+  # 机器人端口
+  port: 8080
+  # 默认移动速度 (0-100)
+  default_speed: 100.0
+
+# 标定板配置
+calibration_board:
+  # 角点列数
+  board_width: 9
+  # 角点行数
+  board_height: 6
+  # 角点间距（毫米）
+  square_size: 25.0

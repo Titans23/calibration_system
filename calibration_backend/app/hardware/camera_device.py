@@ -1,13 +1,33 @@
 # 相机设备抽象基类
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Dict
 import numpy as np
 import logging
+
+from app.config import get_camera_config
 
 logger = logging.getLogger(__name__)
 
 class CameraDevice(ABC):
     """相机设备抽象基类，定义相机操作的标准接口"""
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化相机
+
+        Args:
+            config: 相机配置字典，如果为 None 则从 config.yaml 加载
+        """
+        # 加载配置
+        if config is None:
+            config = get_camera_config()
+
+        self._connected = False
+        self._grabbing = False
+        self._exposure = config.get('exposure', 10000.0)
+        self._gain = config.get('gain', 1.0)
+        self._width = config.get('width', 640)
+        self._height = config.get('height', 480)
+        self._jpeg_quality = config.get('jpeg_quality', 70)
+        self._frame_count = 0
 
     @abstractmethod
     def connect(self) -> bool:
@@ -127,16 +147,20 @@ class CameraDevice(ABC):
 class MockCameraDevice(CameraDevice):
     """模拟相机设备，用于测试和开发"""
 
-    def __init__(self):
-        self._connected = False
-        self._grabbing = False
-        self._exposure = 10000.0
-        self._gain = 1.0
-        self._frame_count = 0
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化模拟相机
+
+        Args:
+            config: 相机配置字典，如果为 None 则从 config.yaml 加载
+        """
+        super().__init__(config)
+
         # 预生成的噪声图像
         self._noise = None
         # 预生成的棋盘格模板
         self._chessboard = None
+
+        logger.info(f"MockCameraDevice 初始化: exposure={self._exposure}, gain={self._gain}, resolution={self._width}x{self._height}")
 
     def connect(self) -> bool:
         """模拟连接相机"""
@@ -167,7 +191,8 @@ class MockCameraDevice(CameraDevice):
         if self._connected and self._grabbing:
             self._frame_count += 1
 
-            width, height = 640, 480
+            width = self._width
+            height = self._height
             square_size = 40
 
             # 每60帧（约2秒）随机改变方向，使运动更连贯
@@ -218,8 +243,8 @@ class MockCameraDevice(CameraDevice):
         import cv2
         frame = self.get_frame()
         if frame is not None:
-            # 使用较低质量编码以提高速度
-            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            # 使用配置的 JPEG 质量编码
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality])
             return base64.b64encode(buffer).decode('utf-8')
         return None
 
