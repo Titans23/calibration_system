@@ -112,6 +112,9 @@
               <el-icon :size="48"><VideoCamera /></el-icon>
               <p>相机实时预览</p>
             </div>
+            <div class="fps-display">
+              <span>FPS: {{ fps }}</span>
+            </div>
           </div>
 
           <div class="capture-info">
@@ -232,7 +235,6 @@
 import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { io } from 'socket.io-client'
 import api from '../api'
 import {
   Camera, Connection, Picture, Refresh, ArrowLeft, ArrowRight,
@@ -241,9 +243,10 @@ import {
 
 const router = useRouter()
 
-// Socket.IO 连接
-let socket = null
+// WebSocket 连接
+let ws = null
 const cameraFrame = ref('')
+const fps = ref(0)
 
 // 当前步骤
 const currentStep = ref(0)
@@ -293,49 +296,49 @@ const allDevicesReady = computed(() => {
   return deviceStatus.camera && deviceStatus.robot
 })
 
-// 初始化 Socket.IO 连接
+// 初始化 WebSocket 连接
 const initSocket = () => {
-  // 获取 WebSocket 地址
-  const wsProtocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
-  const wsHost = window.location.host
-  const socketUrl = `${wsProtocol}//${wsHost}`
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  const wsUrl = `${protocol}//${host}/ws/camera`
 
-  socket = io(socketUrl, {
-    transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionDelay: 1000
-  })
+  ws = new WebSocket(wsUrl)
 
-  socket.on('connect', () => {
-    console.log('Socket.IO 已连接')
-  })
+  ws.onopen = () => {
+    console.log('WebSocket 已连接')
+  }
 
-  socket.on('disconnect', () => {
-    console.log('Socket.IO 已断开')
-  })
+  ws.onerror = (error) => {
+    console.error('WebSocket 连接错误:', error)
+  }
 
-  socket.on('camera_frame', (data) => {
-    if (data.image) {
-      cameraFrame.value = data.image
+  ws.onclose = () => {
+    console.log('WebSocket 已断开')
+  }
+
+  ws.onmessage = (event) => {
+    if (event.data) {
+      // 检查是否是 FPS 数据
+      if (event.data.startsWith('{"type":"fps"')) {
+        const data = JSON.parse(event.data)
+        fps.value = data.value
+      } else {
+        cameraFrame.value = event.data
+      }
     }
-  })
-
-  socket.on('connected', (data) => {
-    console.log('Socket.IO 确认连接:', data)
-  })
+  }
 }
 
 // 启动相机流
 const startCameraStream = () => {
-  if (socket && socket.connected) {
-    socket.emit('start_stream')
-  }
+  // WebSocket 连接后后端会自动启动相机
+  console.log('准备接收相机流...')
 }
 
 // 停止相机流
 const stopCameraStream = () => {
-  if (socket && socket.connected) {
-    socket.emit('stop_stream')
+  if (ws) {
+    ws.close()
   }
 }
 
@@ -356,21 +359,10 @@ const checkDevices = async () => {
 }
 
 // 开始标定 - 调用后端 API
-const startCalibration = async () => {
-  try {
-    await api.startCalibration({
-      board_type: 'chessboard',
-      board_width: boardConfig.board_width,
-      board_height: boardConfig.board_height,
-      square_size: boardConfig.square_size,
-      capture_count: 12
-    })
-    currentStep.value = 1
-    // 进入采集页面后启动相机流
-    startCameraStream()
-  } catch (error) {
-    ElMessage.error('启动标定失败')
-  }
+const startCalibration = () => {
+  currentStep.value = 1
+  // 进入采集页面后启动相机流
+  startCameraStream()
 }
 
 // 返回上一步
@@ -472,16 +464,15 @@ const goToVerification = () => {
   router.push('/verification')
 }
 
-// 组件挂载时初始化 Socket
+// 组件挂载时初始化 WebSocket
 onMounted(() => {
   initSocket()
 })
 
 // 组件卸载时清理
 onUnmounted(() => {
-  if (socket) {
+  if (ws) {
     stopCameraStream()
-    socket.disconnect()
   }
 })
 </script>
@@ -546,6 +537,7 @@ onUnmounted(() => {
 }
 
 .preview-container {
+  position: relative;
   flex: 1;
   max-width: 640px;
   aspect-ratio: 4/3;
@@ -568,6 +560,18 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   color: #999;
+}
+
+.fps-display {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #0f0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: monospace;
 }
 
 .capture-info {

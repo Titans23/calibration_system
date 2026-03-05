@@ -4,16 +4,10 @@
 """
 import logging
 import sys
-import asyncio
-import threading
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
+import time
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-
-# Socket.IO 相关
-import socketio as python_socketio
-from socketio import ASGIApp
 
 # 日志配置
 logging.basicConfig(
@@ -27,77 +21,63 @@ logging.getLogger("app.service").setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
-# 创建 Socket.IO 服务器
-sio = python_socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
-asgi_app = ASGIApp(sio)
-
 # 全局变量
 _streaming = False
-_streaming_thread = None
-_stop_streaming = threading.Event()
+_websocket = None
+_frame_count = 0
+_last_fps_time = time.time()
 
 
-@sio.on("connect")
-async def connect(sid, environ):
-    """客户端连接"""
-    logger.info(f"客户端连接: {sid}")
-    await sio.emit("connected", {"sid": sid}, room=sid)
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket 实时视频流"""
+    global _streaming, _websocket, _frame_count, _last_fps_time
+    await websocket.accept()
+    _websocket = websocket
+    _streaming = True
+    _frame_count = 0
+    _last_fps_time = time.time()
 
+    logger.info("WebSocket 客户端连接")
 
-@sio.on("disconnect")
-async def disconnect(sid):
-    """客户端断开"""
-    logger.info(f"客户端断开: {sid}")
-
-
-@sio.on("start_stream")
-async def start_stream(sid, data):
-    """开始相机流"""
-    global _streaming, _streaming_thread
-    logger.info(f"客户端请求开始流: {sid}")
-
+    # 启动相机采集
     from app.service import calibration_service
     calibration_service.start_camera_stream()
-    _streaming = True
-    _stop_streaming.clear()
+    logger.info("相机已启动")
 
-    # 启动后台发送线程
-    _streaming_thread = threading.Thread(target=_send_camera_frames, daemon=True)
-    _streaming_thread.start()
+    try:
+        while _streaming:
+            try:
+                frame_base64 = calibration_service.get_camera_frame()
+                if frame_base64:
+                    _frame_count += 1
+                    # 每秒计算一次帧率
+                    current_time = time.time()
+                    if current_time - _last_fps_time >= 1.0:
+                        fps = _frame_count / (current_time - _last_fps_time)
+                        _frame_count = 0
+                        _last_fps_time = current_time
+                        # 发送帧率和图像
+                        await websocket.send_text(f"{{\"type\":\"fps\",\"value\":{fps:.1f}}}")
+                        await websocket.send_text(f"data:image/jpeg;base64,{frame_base64}")
+                    else:
+                        await websocket.send_text(f"data:image/jpeg;base64,{frame_base64}")
+                import asyncio
+                await asyncio.sleep(0.033)  # 约30fps
+            except Exception as e:
+                logger.error(f"发送帧失败: {e}")
+                break
+    except WebSocketDisconnect:
+        logger.info("WebSocket 客户端断开")
+    finally:
+        _streaming = False
+        _websocket = None
+        calibration_service.stop_camera_stream()
 
-    await sio.emit("stream_started", {"status": "success"}, room=sid)
-    return {"status": "success"}
 
-
-@sio.on("stop_stream")
-async def stop_stream(sid, data):
-    """停止相机流"""
+def stop_streaming():
+    """停止流"""
     global _streaming
-    logger.info(f"客户端请求停止流: {sid}")
-
     _streaming = False
-    _stop_streaming.set()
-
-    from app.service import calibration_service
-    calibration_service.stop_camera_stream()
-
-    await sio.emit("stream_stopped", {"status": "success"}, room=sid)
-    return {"status": "success"}
-
-
-def _send_camera_frames():
-    """后台线程：定时发送相机帧"""
-    while _streaming and not _stop_streaming.is_set():
-        try:
-            from app.service import calibration_service
-            frame_base64 = calibration_service.get_camera_frame()
-            if frame_base64:
-                # 使用 sync_to_async 来在异步上下文中发送
-                asyncio.run(sio.emit("camera_frame", {"image": f"data:image/jpeg;base64,{frame_base64}"}))
-        except Exception as e:
-            logger.error(f"发送相机帧失败: {e}")
-        import time
-        time.sleep(0.033)  # 约30fps
 
 
 # FastAPI 应用
@@ -116,8 +96,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册 Socket.IO ASGI 应用
-app.mount("/socket.io", asgi_app)
+# 注册 WebSocket 路由
+@app.websocket("/ws/camera")
+async def websocket_route(websocket: WebSocket):
+    await websocket_endpoint(websocket)
+
 
 # 注册路由（添加 /api 前缀）
 from app.routes import calibration, verification
@@ -150,9 +133,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭"""
-    global _streaming
-    _streaming = False
-    _stop_streaming.set()
+    stop_streaming()
     logging.info("应用关闭")
 
 

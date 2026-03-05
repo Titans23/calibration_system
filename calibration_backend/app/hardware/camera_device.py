@@ -2,7 +2,9 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Any
 import numpy as np
+import logging
 
+logger = logging.getLogger(__name__)
 
 class CameraDevice(ABC):
     """相机设备抽象基类，定义相机操作的标准接口"""
@@ -130,6 +132,11 @@ class MockCameraDevice(CameraDevice):
         self._grabbing = False
         self._exposure = 10000.0
         self._gain = 1.0
+        self._frame_count = 0
+        # 预生成的噪声图像
+        self._noise = None
+        # 预生成的棋盘格模板
+        self._chessboard = None
 
     def connect(self) -> bool:
         """模拟连接相机"""
@@ -156,19 +163,64 @@ class MockCameraDevice(CameraDevice):
         return True
 
     def get_frame(self) -> Optional[np.ndarray]:
-        """返回模拟的空白图像"""
+        """返回模拟的动态黑白相间图像"""
         if self._connected and self._grabbing:
-            # 返回一个640x480的黑色图像
-            return np.zeros((480, 640, 3), dtype=np.uint8)
+            self._frame_count += 1
+
+            width, height = 640, 480
+            square_size = 40
+
+            # 每60帧（约2秒）随机改变方向，使运动更连贯
+            if self._frame_count % 60 == 0:
+                self._direction = np.random.choice(['left', 'right', 'up', 'down'])
+
+            # 懒加载预生成资源
+            if self._chessboard is None:
+                # 预生成棋盘格
+                x = np.arange(width)
+                y = np.arange(height)
+                xx, yy = np.meshgrid(x, y)
+                self._chessboard = ((((xx // square_size) + (yy // square_size)) % 2) * 255).astype(np.uint8)
+                self._direction = 'right'
+                self._offset_x = 0
+                self._offset_y = 0
+
+            # 使用累加偏移实现平滑移动
+            if self._direction == 'right':
+                self._offset_x = (self._offset_x + 2) % width
+            elif self._direction == 'left':
+                self._offset_x = (self._offset_x - 2) % width
+            elif self._direction == 'up':
+                self._offset_y = (self._offset_y - 2) % height
+            elif self._direction == 'down':
+                self._offset_y = (self._offset_y + 2) % height
+
+            # 使用 scipy ndimage 进行更平滑的平移
+            from scipy import ndimage
+            rolled = ndimage.shift(self._chessboard, [self._offset_y, self._offset_x], mode='wrap')
+            rolled = rolled.astype(np.uint8)
+
+            # 添加噪声
+            if self._noise is None or self._frame_count % 30 == 0:
+                self._noise = np.random.randint(-10, 10, (height, width), dtype=np.int16)
+
+            image = np.clip(rolled.astype(np.int16) + self._noise, 0, 255).astype(np.uint8)
+
+            # 转换为3通道
+            image = np.stack([image, image, image], axis=2)
+
+            return image
         return None
 
     def get_frame_base64(self) -> Optional[str]:
         """返回模拟的Base64图像"""
         import base64
+        import cv2
         frame = self.get_frame()
         if frame is not None:
-            # 简单处理，实际项目中需要正确编码
-            return base64.b64encode(frame.tobytes()).decode('utf-8')
+            # 使用较低质量编码以提高速度
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            return base64.b64encode(buffer).decode('utf-8')
         return None
 
     def set_exposure(self, value: float) -> bool:
