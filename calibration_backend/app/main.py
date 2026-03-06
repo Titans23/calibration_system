@@ -5,8 +5,9 @@
 import logging
 import sys
 import time
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import uvicorn
 
 # 日志配置
@@ -95,6 +96,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# 全局异常处理器 - 捕获 ValueError 并返回给前端
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    """处理 ValueError 异常，返回错误信息给前端"""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "code": 400,
+            "message": str(exc),
+            "success": False
+        }
+    )
+
+
+# 全局异常处理器 - 捕获 HTTPException 并返回统一格式
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """处理 HTTPException 异常，返回统一格式的错误信息"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": exc.status_code,
+            "message": exc.detail,
+            "success": False
+        }
+    )
 
 # 注册 WebSocket 路由
 @app.websocket("/ws/camera")

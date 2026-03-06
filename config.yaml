@@ -2,8 +2,8 @@
 
 # 相机配置
 camera:
-  # 相机类型: mock, hikvision, dahua, etc.
-  type: "mock"
+  # 相机类型: mock, real.
+  type: "real"
   # 相机 IP 地址（真实相机使用）
   ip: "192.168.1.64"
   # 相机端口
@@ -31,10 +31,10 @@ robot:
   default_speed: 100.0
 
 # 标定板配置
-calibration_board:
-  # 角点列数
-  board_width: 9
-  # 角点行数
-  board_height: 6
-  # 角点间距（毫米）
-  square_size: 25.0
+# calibration_board:
+#   # 角点列数
+#   board_width: 9
+#   # 角点行数
+#   board_height: 6
+#   # 角点间距（毫米）
+#   square_size: 25.0

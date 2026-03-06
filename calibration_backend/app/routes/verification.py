@@ -20,29 +20,23 @@ async def get_calibration_info():
 @router.post("/reprojection")
 async def verify_reprojection():
     """重投影验证"""
-    try:
-        result = verification_service.verify_reprojection()
-        return {
-            "code": 200,
-            "message": "验证完成",
-            "data": result
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, message=str(e))
+    result = verification_service.verify_reprojection()
+    return {
+        "code": 200,
+        "message": "验证完成",
+        "data": result
+    }
 
 
 @router.post("/target")
 async def verify_target(position: TargetPosition):
     """目标点验证"""
-    try:
-        result = verification_service.verify_target(position)
-        return {
-            "code": 200,
-            "message": "验证完成",
-            "data": result
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, message=str(e))
+    result = verification_service.verify_target(position)
+    return {
+        "code": 200,
+        "message": "验证完成",
+        "data": result
+    }
 
 
 @router.post("/move-to-target")

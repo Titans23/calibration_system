@@ -15,8 +15,8 @@ from app.models import (
     CalibrationData, RobotPose
 )
 from app.algorithm.hand_eye_calibrator import HandEyeCalibrator
-from app.hardware.camera_device import CameraDevice, MockCameraDevice
-from app.hardware.robot_device import RobotDevice, RobotPose as RobotPoseClass, MockRobotDevice
+from app.hardware.camera_device import CameraDevice, MockCameraDevice, RealCameraDevice
+from app.hardware.robot_device import RobotDevice, RobotPose as RobotPoseClass, MockRobotDevice,UR5eRobotDevice
 from app.config import get_robot_config,get_camera_config
 
 # 配置日志
@@ -39,6 +39,8 @@ def get_camera_device() -> CameraDevice:
         camera_type = get_camera_config().get("type")
         if camera_type == "mock":
             _camera_device = MockCameraDevice()  # 实际项目中替换为真实相机类
+        elif camera_type == "real":
+            _camera_device = RealCameraDevice()  # 实际项目中替换为真实相机类
         else:
             raise ValueError(f"不支持的相机类型: {camera_type}")
     return _camera_device
@@ -52,7 +54,7 @@ def get_robot_device() -> RobotDevice:
         if robot_type == "mock":
             _robot_device = MockRobotDevice()  # 实际项目中替换为真实机器人类
         elif robot_type == "ur5e":
-            _robot_device = RobotDevice()  # 实际项目中替换为 UR5e 机器人类
+            _robot_device = UR5eRobotDevice()  # 实际项目中替换为 UR5e 机器人类
         else:
             raise ValueError(f"不支持的机器人类型: {robot_type}")
     return _robot_device
@@ -228,7 +230,7 @@ def capture_calibration_data(data: CalibrationData) -> Dict[str, Any]:
     }
 
     _calibration_data.append(capture)
-    logger.info(f"采集第 {capture['index']} 组数据, 角点数: {corners_count}, 累计: {len(_calibration_data)}/20")
+    logger.info(f"采集第 {capture['index']} 组数据, 角点数: {corners_count}, 累计: {len(_calibration_data)}/12")
 
     return capture
 

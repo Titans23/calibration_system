@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm create vite@latest:*)"
+      "Bash(npm create vite@latest:*)",
+      "Bash(pip install pyyaml)"
     ]
   }
 }

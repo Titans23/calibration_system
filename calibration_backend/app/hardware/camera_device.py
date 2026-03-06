@@ -1,8 +1,10 @@
 # 相机设备抽象基类
+import os
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Any, Dict
 import numpy as np
 import logging
+import cv2
 
 from app.config import get_camera_config
 
@@ -47,14 +49,8 @@ class CameraDevice(ABC):
         """
         pass
 
-    @abstractmethod
     def is_connected(self) -> bool:
-        """检查相机是否已连接
-
-        Returns:
-            bool: 相机是否已连接
-        """
-        pass
+        return self._connected
 
     @abstractmethod
     def start_grabbing(self) -> bool:
@@ -83,65 +79,62 @@ class CameraDevice(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_frame_base64(self) -> Optional[str]:
-        """获取当前帧的 Base64 编码图像
 
-        Returns:
-            Optional[str]: Base64 编码的图像字符串，失败返回 None
-        """
-        pass
-
-    @abstractmethod
     def set_exposure(self, value: float) -> bool:
-        """设置曝光时间
+        self._exposure = value
+        return True
 
-        Args:
-            value: 曝光时间（微秒）
-
-        Returns:
-            bool: 设置是否成功
-        """
-        pass
-
-    @abstractmethod
     def set_gain(self, value: float) -> bool:
-        """设置增益
+        self._gain = value
+        return True
 
-        Args:
-            value: 增益值
+    def get_frame_base64(self) -> Optional[str]:
+        """返回模拟的Base64图像"""
+        import base64
+        import cv2
+        frame = self.get_frame()
+        if frame is not None:
+            # 使用配置的 JPEG 质量编码
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality])
+            return base64.b64encode(buffer).decode('utf-8')
+        return None
 
-        Returns:
-            bool: 设置是否成功
-        """
-        pass
-
-    @abstractmethod
-    def detect_calibration_board(self, image: np.ndarray, board_width: int, board_height: int) -> Tuple[bool, Any]:
-        """检测标定板角点
+    def detect_calibration_board(self, image: np.ndarray, board_width: int, board_height: int) -> Tuple[bool, Optional[np.ndarray]]:
+        """检测标定板
 
         Args:
             image: 输入图像
-            board_width: 标定板角点列数
-            board_height: 标定板角点行数
+            board_width: 棋盘格内角点宽度
+            board_height: 棋盘格内角点高度
 
         Returns:
-            Tuple[bool, Any]: (是否检测成功, 角点坐标或None)
+            (是否成功, 角点数据) - 角点数据shape为(N, 1, 2)
         """
-        pass
+        if image is None or image.size == 0:
+            return False, None
 
-    @abstractmethod
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        ret, corners = cv2.findChessboardCorners(
+            gray,
+            (board_width, board_height),
+            cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+        )
+
+        if ret:
+            # 亚像素精度优化
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+            corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+
+        return ret, corners
+
     def save_image(self, image: np.ndarray, filepath: str) -> bool:
-        """保存图像到文件
-
-        Args:
-            image: 要保存的图像
-            filepath: 保存路径
-
-        Returns:
-            bool: 保存是否成功
-        """
-        pass
+        """保存图像"""
+        import cv2
+        try:
+            cv2.imwrite(filepath, image)
+            return True
+        except Exception:
+            return False
 
 
 class MockCameraDevice(CameraDevice):
@@ -173,9 +166,6 @@ class MockCameraDevice(CameraDevice):
         self._grabbing = False
         return True
 
-    def is_connected(self) -> bool:
-        return self._connected
-
     def start_grabbing(self) -> bool:
         if self._connected:
             self._grabbing = True
@@ -185,6 +175,28 @@ class MockCameraDevice(CameraDevice):
     def stop_grabbing(self) -> bool:
         self._grabbing = False
         return True
+    
+    # 用于测试将detect_calibration_board重写为模拟检测功能，返回固定的角点数据
+    def detect_calibration_board(self, image: np.ndarray, board_width: int, board_height: int) -> Tuple[bool, Optional[np.ndarray]]:
+        """模拟检测标定板
+
+        Args:
+            image: 输入图像
+            board_width: 棋盘格内角点宽度
+            board_height: 棋盘格内角点高度
+
+        Returns:
+            (是否成功, 角点数据) - 角点数据shape为(N, 1, 2)
+        """
+        if image is None or image.size == 0:
+            return False, None
+
+        # 返回模拟的角点数据，shape必须为(N, 1, 2)以匹配OpenCV格式
+        corners = np.zeros((board_width * board_height, 1, 2))
+        for i in range(board_height):
+            for j in range(board_width):
+                corners[i * board_width + j] = [[j * 20 + 10, i * 20 + 10]]
+        return True, corners
 
     def get_frame(self) -> Optional[np.ndarray]:
         """返回模拟的动态黑白相间图像"""
@@ -236,40 +248,51 @@ class MockCameraDevice(CameraDevice):
 
             return image
         return None
+        
+class RealCameraDevice(CameraDevice):
+    """真实相机设备，使用 OpenCV 进行操作"""
 
-    def get_frame_base64(self) -> Optional[str]:
-        """返回模拟的Base64图像"""
-        import base64
-        import cv2
-        frame = self.get_frame()
-        if frame is not None:
-            # 使用配置的 JPEG 质量编码
-            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality])
-            return base64.b64encode(buffer).decode('utf-8')
-        return None
-
-    def set_exposure(self, value: float) -> bool:
-        self._exposure = value
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        super().__init__(config)
+        # 图片列表用于测试角点检测
+        img_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'img')
+        self._img_files = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith('.jpg')])
+        self._img_index = 0
+        logger.info(f"RealCameraDevice 初始化: exposure={self._exposure}, gain={self._gain}, resolution={self._width}x{self._height}, test_images={len(self._img_files)}")
+    def connect(self) -> bool:
+        """模拟连接相机"""
+        self._connected = True
         return True
 
-    def set_gain(self, value: float) -> bool:
-        self._gain = value
+    def disconnect(self) -> bool:
+        """模拟断开相机"""
+        self._connected = False
+        self._grabbing = False
         return True
 
-    def detect_calibration_board(self, image: np.ndarray, board_width: int, board_height: int) -> Tuple[bool, Any]:
-        """模拟检测标定板"""
-        # 返回模拟的角点数据
-        corners = np.zeros((board_width * board_height, 2))
-        for i in range(board_height):
-            for j in range(board_width):
-                corners[i * board_width + j] = [j * 20 + 10, i * 20 + 10]
-        return True, corners
-
-    def save_image(self, image: np.ndarray, filepath: str) -> bool:
-        """保存图像"""
-        import cv2
-        try:
-            cv2.imwrite(filepath, image)
+    def start_grabbing(self) -> bool:
+        if self._connected:
+            self._grabbing = True
             return True
-        except Exception:
-            return False
+        return False
+
+    def stop_grabbing(self) -> bool:
+        self._grabbing = False
+        return True
+    
+    def get_frame(self) -> Optional[np.ndarray]:
+        """每2秒轮流播放测试图片"""
+        if self._connected and self._grabbing and self._img_files:
+            self._frame_count += 1
+            # 每30帧（约1秒，假设30fps）切换一次图片
+            if self._frame_count % 5 == 0:
+                self._img_index = (self._img_index + 1) % len(self._img_files)
+                # logger.info(f"切换到第 {self._img_index + 1}/{len(self._img_files)} 张图片: {os.path.basename(self._img_files[self._img_index])}")
+
+            img_path = self._img_files[self._img_index]
+            image = cv2.imread(img_path)
+            if image is not None:
+                # 压缩图像到配置的分辨率
+                image = cv2.resize(image, (self._width, self._height), interpolation=cv2.INTER_AREA)
+            return image
+        return None

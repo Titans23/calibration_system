@@ -45,15 +45,12 @@ async def start_calibration(config: CalibrationConfig):
 @router.post("/capture")
 async def capture_data(data: CalibrationData):
     """采集标定数据"""
-    try:
-        capture = calibration_service.capture_calibration_data(data)
-        return {
-            "code": 200,
-            "message": f"已采集第 {capture['index']} 组数据",
-            "data": capture
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, message=str(e))
+    capture = calibration_service.capture_calibration_data(data)
+    return {
+        "code": 200,
+        "message": f"已采集第 {capture['index']} 组数据",
+        "data": capture
+    }
 
 
 @router.get("/data")
@@ -69,15 +66,12 @@ async def get_calibration_data():
 @router.post("/calculate")
 async def calculate_calibration():
     """计算手眼矩阵"""
-    try:
-        result = calibration_service.calculate_calibration()
-        return {
-            "code": 200,
-            "message": "标定计算完成",
-            "data": result
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, message=str(e))
+    result = calibration_service.calculate_calibration()
+    return {
+        "code": 200,
+        "message": "标定计算完成",
+        "data": result
+    }
 
 
 @router.get("/result")
@@ -85,7 +79,7 @@ async def get_calibration_result():
     """获取标定结果"""
     result = calibration_service.get_calibration_result()
     if result is None:
-        raise HTTPException(status_code=404, message="暂无标定结果")
+        raise HTTPException(status_code=404, detail="暂无标定结果")
 
     return {
         "code": 200,
