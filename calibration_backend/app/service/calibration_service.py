@@ -15,7 +15,7 @@ from app.models import (
     CalibrationData, RobotPose
 )
 from app.algorithm.hand_eye_calibrator import HandEyeCalibrator
-from app.hardware.camera_device import CameraDevice, MockCameraDevice, RealCameraDevice
+from app.hardware.camera_device import CameraDevice, MockCameraDevice, RealCameraDevice,DobotCameraDevice
 from app.hardware.robot_device import RobotDevice, RobotPose as RobotPoseClass, MockRobotDevice,UR5eRobotDevice
 from app.config import get_robot_config,get_camera_config
 
@@ -41,6 +41,8 @@ def get_camera_device() -> CameraDevice:
             _camera_device = MockCameraDevice()  # 实际项目中替换为真实相机类
         elif camera_type == "real":
             _camera_device = RealCameraDevice()  # 实际项目中替换为真实相机类
+        elif camera_type == "dobot":
+            _camera_device = DobotCameraDevice()  # 实际项目中替换为 Dobot 相机类
         else:
             raise ValueError(f"不支持的相机类型: {camera_type}")
     return _camera_device

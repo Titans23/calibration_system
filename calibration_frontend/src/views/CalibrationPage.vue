@@ -19,7 +19,21 @@
       <div v-show="currentStep === 0" class="step-section">
         <div class="instruction-box">
           <h4>准备阶段</h4>
-          <p>请确保以下设备已正确连接并准备就绪</p>
+          <p>请确保以下设备已正确连接并准备就绪，点击检查设备后可查看相机画面</p>
+        </div>
+
+        <!-- 相机预览 - 步骤1也显示 -->
+        <div class="preview-section">
+          <div class="preview-container">
+            <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
+            <div v-else class="preview-placeholder">
+              <el-icon :size="48"><VideoCamera /></el-icon>
+              <p>相机实时预览</p>
+            </div>
+            <div class="fps-display" v-if="fps > 0">
+              <span>FPS: {{ fps }}</span>
+            </div>
+          </div>
         </div>
 
         <div class="device-list">
@@ -293,7 +307,7 @@ const captureProgress = computed(() => {
 
 // 是否所有设备就绪
 const allDevicesReady = computed(() => {
-  return deviceStatus.camera && deviceStatus.robot
+  return deviceStatus.camera && deviceStatus.robot && deviceStatus.board
 })
 
 // 初始化 WebSocket 连接
@@ -350,7 +364,11 @@ const checkDevices = async () => {
     deviceStatus.camera = res.camera
     deviceStatus.robot = res.robot
     deviceStatus.board = res.board
-    ElMessage.success('设备检查完成，所有设备已就绪')
+    if (deviceStatus.camera && deviceStatus.robot && deviceStatus.board) {
+      ElMessage.success('设备检查完成，所有设备已就绪')
+    } else {
+      ElMessage.warning('部分设备未就绪，请检查连接')
+    }
   } catch (error) {
     ElMessage.error('设备检查失败')
   } finally {
@@ -361,8 +379,6 @@ const checkDevices = async () => {
 // 开始标定 - 调用后端 API
 const startCalibration = () => {
   currentStep.value = 1
-  // 进入采集页面后启动相机流
-  startCameraStream()
 }
 
 // 返回上一步
@@ -464,9 +480,11 @@ const goToVerification = () => {
   router.push('/verification')
 }
 
-// 组件挂载时初始化 WebSocket
+// 组件挂载时初始化 WebSocket 并启动相机流
 onMounted(() => {
   initSocket()
+  // 页面加载后立即启动相机流，方便查看标定板
+  startCameraStream()
 })
 
 // 组件卸载时清理

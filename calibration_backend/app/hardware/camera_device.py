@@ -5,6 +5,7 @@ from typing import Optional, Tuple, Any, Dict
 import numpy as np
 import logging
 import cv2
+from ctypes import cast, POINTER, c_ubyte, byref, sizeof, memset
 
 from app.config import get_camera_config
 
@@ -296,3 +297,307 @@ class RealCameraDevice(CameraDevice):
                 image = cv2.resize(image, (self._width, self._height), interpolation=cv2.INTER_AREA)
             return image
         return None
+
+class DobotCameraDevice(CameraDevice):
+    """越疆相机设备"""
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """初始化越疆相机
+
+        Args:
+            config: 相机配置字典，如果为 None 则从 config.yaml 加载
+        """
+        super().__init__(config)
+
+        # 越疆相机SDK相关
+        self._cam = None
+        self._stOutFrame = None
+
+        # 导入越疆相机SDK
+        try:
+            from MvImport.MvCameraControl_class import MvCamera, MV_CC_DEVICE_INFO_LIST
+            logger.info("越疆相机SDK导入成功")
+        except ImportError as e:
+            logger.error(f"越疆相机SDK导入失败: {e}")
+            raise ImportError("请确保已正确安装越疆相机SDK (MvImport)")
+
+        logger.info(f"DobotCameraDevice 初始化: exposure={self._exposure}, gain={self._gain}, resolution={self._width}x{self._height}")
+
+    def connect(self) -> bool:
+        """连接越疆相机
+
+        Returns:
+            bool: 连接是否成功
+        """
+        try:
+            from MvImport.MvCameraControl_class import (
+                MvCamera, MV_CC_DEVICE_INFO_LIST, MV_CC_DEVICE_INFO,
+                MV_GIGE_DEVICE, MV_USB_DEVICE, MV_ACCESS_Exclusive
+            )
+
+            # 搜索设备
+            deviceList = MV_CC_DEVICE_INFO_LIST()
+            ret = MvCamera.MV_CC_EnumDevices(MV_GIGE_DEVICE | MV_USB_DEVICE, deviceList)
+
+            if ret != 0 or deviceList.nDeviceNum == 0:
+                logger.error(f"未找到相机! 错误码: [0x{ret:x}]")
+                return False
+
+            logger.info(f"成功找到 {deviceList.nDeviceNum} 个设备，正在连接...")
+
+            # 初始化相机对象
+            self._cam = MvCamera()
+            stDeviceInfo = cast(deviceList.pDeviceInfo[0], POINTER(MV_CC_DEVICE_INFO)).contents
+            ret = self._cam.MV_CC_CreateHandle(stDeviceInfo)
+            if ret != 0:
+                logger.error(f"创建设备句柄失败! [0x{ret:x}]")
+                return False
+
+            # 打开设备
+            ret = self._cam.MV_CC_OpenDevice(MV_ACCESS_Exclusive, 0)
+            if ret != 0:
+                logger.error(f"打开设备失败! [0x{ret:x}]")
+                return False
+
+            # 初始化相机参数
+            self._init_camera_params()
+
+            self._connected = True
+            logger.info("越疆相机已成功连接")
+            return True
+
+        except Exception as e:
+            logger.error(f"连接越疆相机失败: {e}")
+            return False
+
+    def _init_camera_params(self) -> bool:
+        """初始化相机参数
+
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            # 设置为连续取流模式
+            ret = self._cam.MV_CC_SetEnumValue("TriggerMode", 0)
+            if ret != 0:
+                logger.warning(f"设置触发模式失败! [0x{ret:x}]")
+
+            # 关闭自动曝光，使用手动模式
+            ret = self._cam.MV_CC_SetEnumValue("ExposureAuto", 0)
+            if ret != 0:
+                logger.warning(f"关闭自动曝光失败! [0x{ret:x}]")
+
+            # 设置曝光时间
+            if self._exposure is not None:
+                ret = self._cam.MV_CC_SetFloatValue("ExposureTime", float(self._exposure))
+                if ret != 0:
+                    logger.warning(f"设置曝光时间失败! [0x{ret:x}]")
+
+            # 设置增益
+            if self._gain is not None:
+                ret = self._cam.MV_CC_SetFloatValue("Gain", float(self._gain))
+                if ret != 0:
+                    logger.warning(f"设置增益失败! [0x{ret:x}]")
+
+            logger.info("越疆相机参数初始化完成")
+            return True
+
+        except Exception as e:
+            logger.error(f"初始化相机参数失败: {e}")
+            return False
+
+    def disconnect(self) -> bool:
+        """断开越疆相机连接
+
+        Returns:
+            bool: 断开是否成功
+        """
+        try:
+            if not self._connected or self._cam is None:
+                return True
+
+            # 如果正在采集，先停止
+            if self._grabbing:
+                self.stop_grabbing()
+
+            # 关闭设备
+            ret = self._cam.MV_CC_CloseDevice()
+            if ret != 0:
+                logger.error(f"关闭设备失败! [0x{ret:x}]")
+                return False
+
+            # 销毁句柄
+            ret = self._cam.MV_CC_DestroyHandle()
+            if ret != 0:
+                logger.error(f"销毁句柄失败! [0x{ret:x}]")
+                return False
+
+            self._connected = False
+            self._cam = None
+            logger.info("越疆相机已安全关闭")
+            return True
+
+        except Exception as e:
+            logger.error(f"断开越疆相机失败: {e}")
+            return False
+
+    def start_grabbing(self) -> bool:
+        """开始采集图像
+
+        Returns:
+            bool: 是否成功开始采集
+        """
+        try:
+            if not self._connected or self._cam is None:
+                logger.error("相机未连接，无法开始采集")
+                return False
+
+            # 开始取流
+            ret = self._cam.MV_CC_StartGrabbing()
+            if ret != 0:
+                logger.error(f"开始取流失败! [0x{ret:x}]")
+                return False
+
+            # 初始化帧结构
+            from MvImport.MvCameraControl_class import MV_FRAME_OUT
+            self._stOutFrame = MV_FRAME_OUT()
+            memset(byref(self._stOutFrame), 0, sizeof(self._stOutFrame))
+
+            self._grabbing = True
+            logger.info("越疆相机开始采集")
+            return True
+
+        except Exception as e:
+            logger.error(f"开始采集失败: {e}")
+            return False
+
+    def stop_grabbing(self) -> bool:
+        """停止采集图像
+
+        Returns:
+            bool: 是否成功停止采集
+        """
+        try:
+            if not self._grabbing or self._cam is None:
+                return True
+
+            ret = self._cam.MV_CC_StopGrabbing()
+            if ret != 0:
+                logger.error(f"停止取流失败! [0x{ret:x}]")
+                return False
+
+            self._grabbing = False
+            self._stOutFrame = None
+            logger.info("越疆相机停止采集")
+            return True
+
+        except Exception as e:
+            logger.error(f"停止采集失败: {e}")
+            return False
+
+    def get_frame(self) -> Optional[np.ndarray]:
+        """获取当前帧图像
+
+        Returns:
+            Optional[np.ndarray]: 图像数组，失败返回 None
+        """
+        try:
+            if not self._grabbing or self._cam is None or self._stOutFrame is None:
+                return None
+
+            # 获取一帧图像
+            ret = self._cam.MV_CC_GetImageBuffer(self._stOutFrame, 1000)
+            if ret != 0:
+                return None
+
+            try:
+                # 获取图像参数
+                nHeight = self._stOutFrame.stFrameInfo.nHeight
+                nWidth = self._stOutFrame.stFrameInfo.nWidth
+                nFrameLen = self._stOutFrame.stFrameInfo.nFrameLen
+
+                # 从内存指针读取数据
+                pData = cast(self._stOutFrame.pBufAddr, POINTER(c_ubyte * nFrameLen)).contents
+                img_data = np.frombuffer(pData, dtype=np.uint8)
+
+                # 根据数据大小判断图像格式并重构图像
+                if nFrameLen == nHeight * nWidth * 3:
+                    # RGB 格式 (3 通道) - 转换为BGR供OpenCV使用
+                    img = img_data.reshape((nHeight, nWidth, 3))
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                elif nFrameLen == nHeight * nWidth:
+                    # 灰度或 Bayer 格式
+                    img = img_data.reshape((nHeight, nWidth))
+                    # 转换为3通道
+                    img = np.stack([img, img, img], axis=2)
+                else:
+                    # 其他格式
+                    logger.warning(f"未知图像格式: {nFrameLen} bytes for {nWidth}x{nHeight}")
+                    img = None
+
+                return img.copy() if img is not None else None
+
+            finally:
+                # 释放缓存
+                self._cam.MV_CC_FreeImageBuffer(self._stOutFrame)
+
+        except Exception as e:
+            logger.error(f"获取图像帧失败: {e}")
+            return None
+
+    def set_exposure(self, value: float) -> bool:
+        """设置曝光时间
+
+        Args:
+            value: 曝光时间（微秒）
+
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            if self._cam is None or not self._connected:
+                return False
+
+            ret = self._cam.MV_CC_SetFloatValue("ExposureTime", float(value))
+            if ret != 0:
+                logger.error(f"设置曝光时间失败! [0x{ret:x}]")
+                return False
+
+            self._exposure = value
+            logger.info(f"曝光时间已设置为: {value} 微秒")
+            return True
+
+        except Exception as e:
+            logger.error(f"设置曝光时间失败: {e}")
+            return False
+
+    def set_gain(self, value: float) -> bool:
+        """设置增益
+
+        Args:
+            value: 增益值（dB）
+
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            if self._cam is None or not self._connected:
+                return False
+
+            ret = self._cam.MV_CC_SetFloatValue("Gain", float(value))
+            if ret != 0:
+                logger.error(f"设置增益失败! [0x{ret:x}]")
+                return False
+
+            self._gain = value
+            logger.info(f"增益已设置为: {value} dB")
+            return True
+
+        except Exception as e:
+            logger.error(f"设置增益失败: {e}")
+            return False
+
+    def __del__(self):
+        """析构函数，确保资源被释放"""
+        if self._connected:
+            self.disconnect()
