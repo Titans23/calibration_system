@@ -152,6 +152,7 @@ class MockRobotDevice(RobotDevice):
         self._host = host if host is not None else self._host
         self._port = port if port is not None else self._port
         self._connected = True
+        self._current_pose = RobotPose(x=100, y=0, z=200, rx=0, ry=0, rz=0)
         logger.info(f"MockRobot 连接: {self._host}:{self._port}")
         return True
 

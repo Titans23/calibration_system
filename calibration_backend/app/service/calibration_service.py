@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 import numpy as np
+from matplotlib import pyplot as plt
 
 from app.models import (
     DeviceStatus, CalibrationResult, CalibrationConfig,
@@ -445,10 +446,63 @@ def _save_calibration_result(result: Dict[str, Any]) -> bool:
 def get_calibration_result() -> Optional[Dict[str, Any]]:
     """获取标定结果
 
+    优先从内存获取，如果内存中没有则从文件加载
+
     Returns:
         标定结果，如果不存在则返回 None
     """
-    return _calibration_result
+    global _calibration_result
+
+    # 如果内存中有结果，直接返回
+    if _calibration_result is not None:
+        return _calibration_result
+
+    # 尝试从文件加载
+    hand_eye_file = CALIB_RESULT_DIR / "hand_eye_latest.json"
+    camera_calib_file = CALIB_RESULT_DIR / "camera_calib_latest.json"
+
+    if not hand_eye_file.exists():
+        logger.warning("标定结果文件不存在，请先完成标定")
+        return None
+
+    try:
+        import json
+
+        # 加载手眼标定结果
+        with open(hand_eye_file, 'r', encoding='utf-8') as f:
+            hand_eye_data = json.load(f)
+
+        # 加载相机标定结果
+        camera_matrix = None
+        distortion_coeffs = None
+        if camera_calib_file.exists():
+            with open(camera_calib_file, 'r', encoding='utf-8') as f:
+                camera_calib_data = json.load(f)
+                camera_matrix = camera_calib_data.get("camera_matrix")
+                distortion_coeffs = camera_calib_data.get("distortion_coeffs")
+
+        if camera_matrix is None:
+            logger.warning("相机标定结果文件不存在，无法进行验证")
+            return None
+
+        # 合并结果
+        _calibration_result = {
+            "method": hand_eye_data.get("method"),
+            "data_count": hand_eye_data.get("data_count"),
+            "reprojection_error": hand_eye_data.get("reprojection_error"),
+            "calibration_time": hand_eye_data.get("calibration_time"),
+            "success": hand_eye_data.get("success"),
+            "hand_eye_matrix": hand_eye_data.get("hand_eye_matrix"),
+            "camera_matrix": camera_matrix,
+            "distortion_coeffs": distortion_coeffs
+        }
+
+        logger.info(f"已从文件加载标定结果: {hand_eye_file}")
+        return _calibration_result
+
+    except Exception as e:
+        logger.error(f"加载标定结果失败: {e}")
+        return None
 
 
 def clear_calibration_data() -> None:
@@ -502,3 +556,113 @@ def stop_camera_stream() -> bool:
     """
     camera = get_camera_device()
     return camera.stop_grabbing()
+
+
+# ========== 目标点验证相关 ==========
+
+def calculate_corner_base(
+    board_width: int = 10,
+    board_height: int = 7,
+    square_size: float = 0.020
+) -> Dict[str, Any]:
+    # 检查标定结果
+    if _calibration_result is None:
+        raise ValueError("请先完成标定")
+
+    # 获取相机内参和畸变系数
+    camera_matrix = _calibration_result.get("camera_matrix")
+    distortion_coeffs = _calibration_result.get("distortion_coeffs")
+    hand_eye_matrix = _calibration_result.get("hand_eye_matrix")
+    if camera_matrix is None or hand_eye_matrix is None:
+        raise ValueError("标定结果中缺少必要的矩阵信息")
+
+    # 转换为numpy数组
+    camera_matrix = np.array(camera_matrix)
+    distortion_coeffs = np.array(distortion_coeffs) if distortion_coeffs is not None else np.zeros(5)
+    T_cam2base = np.array(hand_eye_matrix)
+
+    # 获取相机
+    camera = get_camera_device()
+    camera.connect()
+    camera.start_grabbing()
+    # 拍摄图像
+    img = camera.get_frame()
+    camera.disconnect()
+    if img is None:
+        raise ValueError("无法获取相机图像")
+    pattern_size = (board_height, board_width)
+    # 检测角点
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    ret, corners = cv2.findChessboardCorners(img, pattern_size, None)
+    if not ret:
+        print("未检测到棋盘格角点！")
+        exit()
+
+    # 提高角点精度
+    corners = cv2.cornerSubPix(img, corners, (5,5 ), (-1, -1),
+                            criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+
+    # 生成棋盘格的世界坐标（Z=0 平面）
+    obj_points = []
+    for j in range(pattern_size[1]):
+        for i in range(pattern_size[0]):
+            obj_points.append([i * square_size, j * square_size, 0])
+    obj_points = np.array(obj_points, dtype=np.float32)
+
+    # 求解 PnP 问题
+    image_points = corners.reshape(-1, 2)
+    ret, rvec, tvec = cv2.solvePnP(obj_points, image_points, camera_matrix, distortion_coeffs)
+
+    # 左上角第一个内角点的世界坐标（假设为 (0, 0, 0)）
+    world_coord = obj_points[1]
+
+    # 计算相机坐标系中的 3D 坐标
+    R, _ = cv2.Rodrigues(rvec)
+    # =============
+    base_coords = []
+    for world_coord in obj_points:
+        # 计算相机坐标系 3D 坐标
+        camera_coord_3d = np.dot(R, world_coord) + tvec.flatten()
+        # 转换为齐次坐标
+        # logger.debug(f"世界坐标: {world_coord}, 相机坐标: {camera_coord_3d}")
+        camera_homogeneous = np.append(camera_coord_3d, 1)
+        # logger.debug(f"世界坐标: {world_coord}, 相机坐标: {camera_coord_3d}, 齐次坐标: {camera_homogeneous}")
+        # 计算基座坐标系 3D 坐标 gripper2base = cam2base @ gripper2cam
+        base_homogeneous = np.dot(T_cam2base, camera_homogeneous)
+        base_coords.append(base_homogeneous[:3])
+    base_coords = np.array(base_coords)
+
+    # 绘制坐标轴和标注
+    img_with_axes = img.copy()
+    # 绘制角点
+    cv2.drawChessboardCorners(img_with_axes, pattern_size, corners, ret)
+
+    # 获取左上角点（原点）像素坐标
+    origin_pixel = corners[0].ravel()  # 左上角点
+
+    # 绘制 X 轴（红色，向右）
+    x_axis_length = 100  # 像素长度
+    x_axis_end = (int(origin_pixel[0] + x_axis_length), int(origin_pixel[1]))
+    cv2.arrowedLine(img_with_axes, tuple(origin_pixel.astype(int)), x_axis_end, (255, 0, 0), 2, tipLength=0.1)
+    cv2.putText(img_with_axes, 'X', (x_axis_end[0] + 10, x_axis_end[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+    # 绘制 Y 轴（绿色，向下）
+    y_axis_end = (int(origin_pixel[0]), int(origin_pixel[1] + x_axis_length))
+    cv2.arrowedLine(img_with_axes, tuple(origin_pixel.astype(int)), y_axis_end, (0, 255, 0), 2, tipLength=0.1)
+    cv2.putText(img_with_axes, 'Y', (y_axis_end[0] + 10, y_axis_end[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+    # 标注每个角点的基座坐标
+    for i, (corner, base_coord) in enumerate(zip(corners, base_coords)):
+        corner_pixel = corner.ravel().astype(int)
+        coord_text = f"({base_coord[0]:.5f}, {base_coord[1]:.5f}, {base_coord[2]:.5f})"
+        cv2.putText(img_with_axes, coord_text, (corner_pixel[0] + 10, corner_pixel[1]),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.60, (0, 0, 255), 1)
+
+    # 保存图片
+    cv2.imwrite('chessboard_with_axes_and_coords.jpg', img_with_axes)
+    base_coord = base_coords[0]
+    return {
+        "x": base_coord[0]*1000,
+        "y": base_coord[1]*1000,
+        "z": base_coord[2]*1000,
+    }

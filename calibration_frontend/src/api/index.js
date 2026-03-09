@@ -103,6 +103,16 @@ const api = {
   // 移动到目标点
   moveToTarget: (position) => {
     return request.post('/verification/move-to-target', position)
+  },
+
+  // 检测目标点（自动计算3D坐标）
+  detectTarget: () => {
+    return request.post('/verification/detect-target')
+  },
+
+  // 自动检测目标点并移动机械臂
+  autoDetectAndMove: () => {
+    return request.post('/verification/auto-detect-and-move')
   }
 }
 

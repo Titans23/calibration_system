@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npm create vite@latest:*)",
-      "Bash(pip install pyyaml)"
+      "Bash(pip install pyyaml)",
+      "Bash(python -m py_compile app/service/calibration_service.py)"
     ]
   }
 }

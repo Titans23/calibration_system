@@ -90,8 +90,101 @@
 
         <!-- 目标点验证界面 -->
         <div v-else class="target-section">
-          <div class="target-input">
-            <h4>输入目标点坐标</h4>
+          <!-- 自动检测模式说明 -->
+          <div class="auto-detect-tip">
+            <el-alert
+              title="目标点验证说明"
+              type="info"
+              :closable="false"
+              show-icon
+            >
+              <template #default>
+                1. 将机械臂末端调整为 RX≈0°, RY≈0°（与基座X、Y轴对齐）<br>
+                2. 将标定板平铺在水平桌面上<br>
+                3. 点击"自动检测目标点"计算坐标<br>
+                4. 确认目标坐标后，点击"确认移动到目标点"或手动输入坐标移动
+              </template>
+            </el-alert>
+          </div>
+
+          <div class="verify-controls auto-detect-btn">
+            <el-button type="success" size="large" @click="autoDetectTarget" :loading="detecting">
+              <el-icon><Search /></el-icon>
+              自动检测目标点
+            </el-button>
+          </div>
+
+          <!-- 检测结果展示 -->
+          <div v-if="detectedTarget" class="detected-result">
+            <!-- 姿态对齐提示 -->
+            <div v-if="detectedTarget.alignment_tip" class="alignment-tip">
+              <el-alert
+                :title="detectedTarget.is_aligned ? '姿态已对齐' : '姿态未对齐'"
+                :type="detectedTarget.is_aligned ? 'success' : 'warning'"
+                :closable="false"
+                show-icon
+              >
+                <template #default>
+                  {{ detectedTarget.alignment_tip }}
+                </template>
+              </el-alert>
+            </div>
+
+            <!-- 当前机械臂姿态 -->
+            <div class="current-pose">
+              <h4>当前机械臂姿态</h4>
+              <el-descriptions :column="3" border size="small">
+                <el-descriptions-item label="X (mm)">{{ detectedTarget.current_pose?.x }}</el-descriptions-item>
+                <el-descriptions-item label="Y (mm)">{{ detectedTarget.current_pose?.y }}</el-descriptions-item>
+                <el-descriptions-item label="Z (mm)">{{ detectedTarget.current_pose?.z }}</el-descriptions-item>
+                <el-descriptions-item label="RX (°)">{{ detectedTarget.current_pose?.rx }}</el-descriptions-item>
+                <el-descriptions-item label="RY (°)">{{ detectedTarget.current_pose?.ry }}</el-descriptions-item>
+                <el-descriptions-item label="RZ (°)">{{ detectedTarget.current_pose?.rz }}</el-descriptions-item>
+              </el-descriptions>
+            </div>
+
+            <!-- 目标坐标 -->
+            <div class="target-coord">
+              <h4>目标坐标（请手动移动机械臂到此位置）</h4>
+              <el-descriptions :column="3" border>
+                <el-descriptions-item label="X (mm)">
+                  <span class="target-value">{{ detectedTarget.target_pose?.x }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="Y (mm)">
+                  <span class="target-value">{{ detectedTarget.target_pose?.y }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="Z (mm)">
+                  <span class="target-value">{{ detectedTarget.target_pose?.z }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="RX (°)">0</el-descriptions-item>
+                <el-descriptions-item label="RY (°)">0</el-descriptions-item>
+                <el-descriptions-item label="RZ (°)">{{ detectedTarget.target_pose?.rz }}</el-descriptions-item>
+              </el-descriptions>
+            </div>
+
+            <!-- 一键确认移动按钮 -->
+            <div class="confirm-move-btn">
+              <el-button type="primary" size="large" @click="confirmAndMove" :loading="moving">
+                <el-icon><Position /></el-icon>
+                确认移动到目标点
+              </el-button>
+            </div>
+
+            <!-- 坐标差异说明 -->
+            <div class="coord-diff">
+              <p class="text-secondary">
+                <el-icon><InfoFilled /></el-icon>
+                坐标差异: ΔX={{ (detectedTarget.target_pose?.x - detectedTarget.current_pose?.x).toFixed(1) }}mm,
+                ΔY={{ (detectedTarget.target_pose?.y - detectedTarget.current_pose?.y).toFixed(1) }}mm,
+                ΔZ={{ (detectedTarget.target_pose?.z - detectedTarget.current_pose?.z).toFixed(1) }}mm
+              </p>
+            </div>
+          </div>
+
+          <el-divider v-if="detectedTarget" />
+
+          <div class="target-input" :class="{ 'with-detection': detectedTarget }">
+            <h4>手动输入目标点坐标</h4>
             <el-form :model="targetForm" label-width="80px">
               <el-row :gutter="20">
                 <el-col :span="12">
@@ -116,17 +209,6 @@
                 </el-col>
               </el-row>
             </el-form>
-          </div>
-
-          <div class="verify-controls">
-            <el-button type="primary" size="large" @click="moveToTarget" :loading="moving">
-              <el-icon><Position /></el-icon>
-              移动到目标点
-            </el-button>
-            <el-button size="large" @click="captureVerify" :loading="capturing">
-              <el-icon><Camera /></el-icon>
-              拍摄验证
-            </el-button>
           </div>
         </div>
 
@@ -236,7 +318,7 @@ import { ElMessage } from 'element-plus'
 import api from '../api'
 import {
   ArrowLeft, ArrowRight, VideoCamera, Position, Aim,
-  CircleCheck, CircleClose, Refresh, Check, Camera
+  CircleCheck, CircleClose, Refresh, Check, Camera, Search, InfoFilled
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -270,6 +352,10 @@ const targetForm = reactive({
 const verifying = ref(false)
 const moving = ref(false)
 const capturing = ref(false)
+const detecting = ref(false)
+
+// 检测到的目标点
+const detectedTarget = ref(null)
 
 // 验证结果
 const verificationResult = reactive({
@@ -339,8 +425,31 @@ const runReprojectionVerify = async () => {
   }
 }
 
-// 移动到目标点 - 调用后端 API
-const moveToTarget = async () => {
+
+// 自动检测目标点 - 调用后端 API
+const autoDetectTarget = async () => {
+  detecting.value = true
+  try {
+    const res = await api.detectTarget()
+
+    detectedTarget.value = res
+
+    // 自动填入目标点表单（使用推荐的目标姿态）
+    targetForm.x = res.target_pose.x
+    targetForm.y = res.target_pose.y
+    targetForm.z = res.target_pose.z
+    targetForm.rx = res.target_pose.rx
+
+    ElMessage.success('检测完成，已计算目标点坐标，请确认后手动移动机械臂')
+  } catch (error) {
+    ElMessage.error('检测失败: ' + (error.message || '请确保标定板在视野内'))
+  } finally {
+    detecting.value = false
+  }
+}
+
+// 确认并移动到目标点
+const confirmAndMove = async () => {
   moving.value = true
   try {
     await api.moveToTarget({
@@ -469,6 +578,67 @@ const finishVerification = () => {
   display: flex;
   justify-content: center;
   gap: 15px;
+  margin-top: 20px;
+}
+
+.auto-detect-tip {
+  margin-bottom: 20px;
+}
+
+.auto-detect-btn {
+  margin-top: 20px;
+}
+
+.detected-result {
+  max-width: 600px;
+  margin: 20px auto;
+}
+
+.detected-result h4 {
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.alignment-tip {
+  margin-bottom: 15px;
+}
+
+.current-pose,
+.target-coord {
+  margin-bottom: 20px;
+}
+
+.current-pose h4,
+.target-coord h4 {
+  margin-bottom: 10px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.target-value {
+  color: #409eff;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.confirm-move-btn {
+  text-align: center;
+  margin: 20px 0;
+}
+
+.coord-diff {
+  text-align: center;
+  margin-top: 10px;
+}
+
+.coord-diff .text-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.target-input.with-detection {
   margin-top: 20px;
 }
 

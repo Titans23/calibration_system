@@ -269,6 +269,7 @@ class RealCameraDevice(CameraDevice):
         """模拟断开相机"""
         self._connected = False
         self._grabbing = False
+        self.stop_grabbing()
         return True
 
     def start_grabbing(self) -> bool:
@@ -292,9 +293,9 @@ class RealCameraDevice(CameraDevice):
 
             img_path = self._img_files[self._img_index]
             image = cv2.imread(img_path)
-            if image is not None:
-                # 压缩图像到配置的分辨率
-                image = cv2.resize(image, (self._width, self._height), interpolation=cv2.INTER_AREA)
+            # if image is not None:
+            #     # 压缩图像到配置的分辨率
+            #     image = cv2.resize(image, (self._width, self._height), interpolation=cv2.INTER_AREA)
             return image
         return None
 

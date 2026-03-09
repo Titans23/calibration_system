@@ -48,3 +48,23 @@ async def move_to_target(position: TargetPosition):
         "message": f"已移动到目标位置 ({position.x}, {position.y}, {position.z})",
         "data": result
     }
+
+
+@router.post("/detect-target")
+async def detect_target_point():
+    """检测标定板角点位置（自动计算3D坐标）
+
+    拍摄标定板图像，计算左上角角点在相机坐标系和机械臂基座坐标系下的3D位置
+    """
+    try:
+        result = verification_service.detect_target_point()
+        return {
+            "code": 200,
+            "message": "检测完成",
+            "data": result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"检测失败: {str(e)}")
+
