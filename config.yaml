@@ -3,7 +3,7 @@
 # 相机配置
 camera:
   # 相机类型: mock, real,dobot.
-  type: "mock"
+  type: "real"
   # 相机 IP 地址（真实相机使用）
   ip: "192.168.1.64"
   # 相机端口

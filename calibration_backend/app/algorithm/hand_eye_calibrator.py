@@ -60,7 +60,7 @@ class HandEyeCalibrator:
             raise ValueError("数据不足，需要至少3组数据进行标定")
 
         # 步骤1: 相机内参标定
-        obj_points, img_points = self._calibrate_camera(image_paths)
+        obj_points, img_points, camera_reproj_error = self._calibrate_camera(image_paths)
 
         # 步骤2: 计算手眼矩阵
         R_cam2gripper, t_cam2gripper = self._compute_hand_eye(
@@ -70,9 +70,10 @@ class HandEyeCalibrator:
         # 步骤3: 构建结果
         hand_eye_matrix = R_t_to_matrix(R_cam2gripper, t_cam2gripper)
 
-        # 计算重投影误差
+        # 计算手眼标定重投影误差
         reprojection_error = self._compute_reprojection_error(
-            obj_points, img_points, self.rvecs, self.tvecs
+            obj_points, img_points, self.rvecs, self.tvecs,
+            robot_poses, R_cam2gripper, t_cam2gripper
         )
 
         return {
@@ -82,20 +83,21 @@ class HandEyeCalibrator:
             "R_cam2gripper": R_cam2gripper.tolist(),
             "t_cam2gripper": t_cam2gripper.tolist(),
             "hand_eye_matrix": hand_eye_matrix.tolist(),
-            "reprojection_error": reprojection_error,
+            "camera_reprojection_error": camera_reproj_error,  # 相机标定重投影误差
+            "reprojection_error": reprojection_error,  # 手眼标定重投影误差
             "data_count": len(image_paths)
         }
 
     def _calibrate_camera(
         self, image_paths: List[str]
-    ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+    ) -> Tuple[List[np.ndarray], List[np.ndarray], float]:
         """相机内参标定
 
         Args:
             image_paths: 图像文件路径列表
 
         Returns:
-            (obj_points, img_points): 3D世界坐标点列表和2D图像坐标点列表
+            (obj_points, img_points, reprojection_error): 3D世界坐标点列表、2D图像坐标点列表和重投影误差
         """
         # 创建标定板角点3D坐标
         objp = np.zeros(
@@ -157,8 +159,9 @@ class HandEyeCalibrator:
         self.distortion_coeffs = dist
         self.rvecs = rvecs
         self.tvecs = tvecs
+        self.camera_reprojection_error = ret  # 相机标定的重投影误差
 
-        return obj_points, img_points
+        return obj_points, img_points, ret
 
     def _compute_hand_eye(
         self,
@@ -229,33 +232,108 @@ class HandEyeCalibrator:
         obj_points: List[np.ndarray],
         img_points: List[np.ndarray],
         rvecs: List[np.ndarray],
-        tvecs: List[np.ndarray]
+        tvecs: List[np.ndarray],
+        robot_poses: List[List[float]],
+        R_cam2gripper: np.ndarray,
+        t_cam2gripper: np.ndarray
     ) -> float:
-        """计算重投影误差
+        """计算手眼标定重投影误差
+
+        通过两种方式计算标定板相对于基座的变换，比较差异作为手眼标定误差：
+        1. 相机标定方式: T_board2base = T_gripper2base * T_cam2gripper * T_board2cam
+        2. 直接使用相机标定结果
 
         Args:
-            obj_points: 3D世界坐标点列表
+            obj_points: 3D世界坐标点列表（标定板坐标）
             img_points: 2D图像坐标点列表
-            rvecs: 旋转向量列表
-            tvecs: 平移向量列表
+            rvecs: 相机标定得到的旋转向量列表
+            tvecs: 相机标定得到的平移向量列表
+            robot_poses: 机械臂末端位姿列表
+            R_cam2gripper: 手眼矩阵旋转部分
+            t_cam2gripper: 手眼矩阵平移部分
 
         Returns:
-            平均重投影误差
+            手眼标定重投影误差（米）
         """
         total_error = 0
-        total_points = 0
+        total_count = 0
 
-        for i in range(len(obj_points)):
-            # 重投影
-            imgpoints2, _ = cv2.projectPoints(
-                obj_points[i], rvecs[i], tvecs[i],
+        for i in range(len(rvecs)):
+            # 获取相机标定的板到相机变换
+            R_board2cam, _ = cv2.Rodrigues(rvecs[i])
+            t_board2cam = np.array(tvecs[i]).flatten()  # 确保是 (3,) 形状
+
+            # 获取机械臂末端到基座变换
+            T_gripper2base = pose_to_homogeneous_matrix(robot_poses[i])
+            R_gripper2base = T_gripper2base[:3, :3]
+            t_gripper2base = T_gripper2base[:3, 3].flatten()
+
+            # 计算方式1: T_board2base = T_gripper2base * T_cam2gripper * T_board2cam
+            # 即: 先将点从板坐标转到相机坐标，再转末端，再转基座
+            # T_board2gripper = T_cam2gripper * T_board2cam
+            R_board2gripper = R_cam2gripper @ R_board2cam
+            t_board2gripper = (R_cam2gripper @ t_board2cam + t_cam2gripper.flatten()).flatten()
+
+            # T_board2base = T_gripper2base * T_board2gripper
+            R_board2base_method1 = R_gripper2base @ R_board2gripper
+            t_board2base_method1 = (R_gripper2base @ t_board2gripper + t_gripper2base).flatten()
+
+            # 获取方式2: 直接从相机标定结果计算板到基座的变换
+            # 实际上，相机标定只给了我们板到相机的变换，没有直接的板到基座
+            # 所以我们用T_board2base_method1来重投影验证
+
+            # 为了计算误差，我们用重投影方法：
+            # 将板角点转到基座，再用相机内参投影回来，与检测的角点比较
+            # 这里简化为：比较T_board2base_method1与直接用相机标定得到的位姿
+
+            # 使用另一种验证方式：
+            # 用手眼标定结果反推相机到基座的变换，与相机标定结果比较
+            # T_cam2base = T_gripper2base * T_cam2gripper
+            R_cam2base = R_gripper2base @ R_cam2gripper
+            t_cam2base = (R_gripper2base @ t_cam2gripper.flatten() + t_gripper2base).flatten()
+
+            # 用手眼标定得到的相机到基座变换，重投影标定板角点
+            # T_board2base = T_cam2base * T_board2cam (的逆) = T_cam2base @ T_cam2board
+            R_board2cam_inv = R_board2cam.T
+            t_board2cam_inv = (-R_board2cam_inv @ t_board2cam).flatten()
+
+            R_board2base_handeye = R_cam2base @ R_board2cam_inv
+            t_board2base_handeye = (R_cam2base @ t_board2cam_inv + t_cam2base).flatten()
+
+            # 从相机标定结果构建板到基座的另一种表达
+            # 实际上相机标定无法直接得到板到基座，所以我们用rvecs/tvecs直接重投影来验证
+            # 这里我们改用更直观的方法：用手眼矩阵重投影验证
+
+            # 重投影: 板角点 -> 相机坐标 -> 投影到图像
+            # 用手眼标定得到的T_cam2base来验证
+            # 先将标定板角点转到基座
+            board_points = obj_points[i].T  # 3 x N
+
+            # 确保 t_board2base_handeye 是正确的形状 (3,)
+            t_board2base_handeye_flat = t_board2base_handeye.flatten()
+            base_points = R_board2base_handeye @ board_points + t_board2base_handeye_flat.reshape(3, 1)
+
+            # 再从基座转到相机 (用T_cam2base的逆)
+            R_base2cam = R_cam2base.T
+            t_cam2base_flat = t_cam2base.flatten()
+            t_base2cam = -R_base2cam @ t_cam2base_flat
+
+            cam_points = R_base2cam @ base_points + t_base2cam.reshape(3, 1)
+
+            # 投影到图像
+            img_points_pred, _ = cv2.projectPoints(
+                cam_points.T, np.zeros(3), np.zeros(3),
                 self.camera_matrix, self.distortion_coeffs
             )
-            error = cv2.norm(img_points[i], imgpoints2, cv2.NORM_L2)
-            total_error += error * error
-            total_points += len(obj_points[i])
 
-        return np.sqrt(total_error / total_points) if total_points > 0 else 0
+            # 计算误差 - 确保类型一致
+            img_actual = img_points[i].astype(np.float64)
+            img_pred = img_points_pred.astype(np.float64)
+            error = cv2.norm(img_actual.squeeze(), img_pred.squeeze(), cv2.NORM_L2)
+            total_error += error * error
+            total_count += len(obj_points[i])
+
+        return np.sqrt(total_error / total_count) if total_count > 0 else 0
 
     def get_calibration_result(self) -> Optional[Dict[str, Any]]:
         """获取标定结果

@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent / "data"
 ORIGIN_DATA_FILE = DATA_DIR / "origin_data.txt"
 IMG_DIR = DATA_DIR / "img"
+CALIB_RESULT_DIR = DATA_DIR / "calib_result"
+
+# 确保目录存在
+CALIB_RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 设备实例（单例模式）
 _camera_device: Optional[CameraDevice] = None
@@ -310,6 +314,7 @@ def calculate_calibration() -> Dict[str, Any]:
                 "success": True,
                 "hand_eye_matrix": result["hand_eye_matrix"],
                 "camera_matrix": result.get("camera_matrix"),
+                "camera_reprojection_error": result.get("camera_reprojection_error"),
                 "distortion_coeffs": result.get("distortion_coeffs")
             }
             logger.info(f"标定成功! 重投影误差: {_calibration_result['reprojection_error']}mm")
@@ -349,6 +354,7 @@ def calculate_calibration() -> Dict[str, Any]:
                     "success": True,
                     "hand_eye_matrix": result["hand_eye_matrix"],
                     "camera_matrix": result.get("camera_matrix"),
+                    "camera_reprojection_error": result.get("camera_reprojection_error"),
                     "distortion_coeffs": result.get("distortion_coeffs")
                 }
                 logger.info(f"使用 origin_data.txt 标定成功! 重投影误差: {_calibration_result['reprojection_error']}mm")
@@ -356,8 +362,84 @@ def calculate_calibration() -> Dict[str, Any]:
                 raise ValueError(f"使用 origin_data.txt 计算失败: {calc_error}")
         else:
             raise ValueError(f"origin_data.txt 数据不足: {len(origin_data)}")
-        
+
+    # 保存标定结果到文件
+    if _calibration_result:
+        _save_calibration_result(_calibration_result)
+
     return _calibration_result
+
+
+def _save_calibration_result(result: Dict[str, Any]) -> bool:
+    """保存标定结果到文件
+
+    Args:
+        result: 标定结果字典
+
+    Returns:
+        是否保存成功
+    """
+    try:
+        import json
+        from datetime import datetime
+
+        # 生成时间戳
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 转换 numpy 数组为列表（JSON 不支持 numpy 数组）
+        def to_list(val):
+            """安全转换为列表"""
+            if val is None:
+                return None
+            if isinstance(val, np.ndarray):
+                return val.tolist()
+            # 已经是列表或其他类型，直接返回
+            return val
+
+        # ========== 1. 保存手眼标定结果 ==========
+        hand_eye_data = {
+            "method": result.get("method"),
+            "data_count": result.get("data_count"),
+            "reprojection_error": result.get("reprojection_error"),
+            "calibration_time": result.get("calibration_time"),
+            "success": result.get("success"),
+            "hand_eye_matrix": to_list(result.get("hand_eye_matrix"))
+        }
+
+        hand_eye_file = CALIB_RESULT_DIR / f"hand_eye_{timestamp}.json"
+        with open(hand_eye_file, 'w', encoding='utf-8') as f:
+            json.dump(hand_eye_data, f, indent=2, ensure_ascii=False)
+        logger.info(f"手眼标定结果已保存到: {hand_eye_file}")
+
+        # 保存最新手眼标定结果
+        hand_eye_latest = CALIB_RESULT_DIR / "hand_eye_latest.json"
+        with open(hand_eye_latest, 'w', encoding='utf-8') as f:
+            json.dump(hand_eye_data, f, indent=2, ensure_ascii=False)
+
+        # ========== 2. 保存相机标定结果 ==========
+        camera_calib_data = {
+            "calibration_time": result.get("calibration_time"),
+            "success": result.get("success"),
+            "camera_matrix": to_list(result.get("camera_matrix")),
+            "distortion_coeffs": to_list(result.get("distortion_coeffs")),
+            "camera_reprojection_error": result.get("camera_reprojection_error")
+        }
+
+        camera_calib_file = CALIB_RESULT_DIR / f"camera_calib_{timestamp}.json"
+        with open(camera_calib_file, 'w', encoding='utf-8') as f:
+            json.dump(camera_calib_data, f, indent=2, ensure_ascii=False)
+        logger.info(f"相机标定结果已保存到: {camera_calib_file}")
+
+        # 保存最新相机标定结果
+        camera_calib_latest = CALIB_RESULT_DIR / "camera_calib_latest.json"
+        with open(camera_calib_latest, 'w', encoding='utf-8') as f:
+            json.dump(camera_calib_data, f, indent=2, ensure_ascii=False)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"保存标定结果失败: {e}")
+        return False
 
 
 def get_calibration_result() -> Optional[Dict[str, Any]]:
