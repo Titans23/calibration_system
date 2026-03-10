@@ -132,9 +132,10 @@ async def websocket_route(websocket: WebSocket):
 
 
 # 注册路由（添加 /api 前缀）
-from app.routes import calibration, verification
+from app.routes import calibration, verification, robot
 app.include_router(calibration.router, prefix="/api")
 app.include_router(verification.router, prefix="/api")
+app.include_router(robot.router, prefix="/api")
 
 
 @app.get("/")

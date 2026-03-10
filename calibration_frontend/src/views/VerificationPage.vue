@@ -90,6 +90,22 @@
 
         <!-- 目标点验证界面 -->
         <div v-else class="target-section">
+          <!-- 相机预览 + 机械臂控制 -->
+          <div class="preview-section">
+            <div class="preview-left">
+              <div class="camera-preview-container">
+                <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
+                <div v-else class="preview-placeholder">
+                  <el-icon :size="48"><VideoCamera /></el-icon>
+                  <p>等待相机连接...</p>
+                </div>
+              </div>
+            </div>
+            <div class="preview-right">
+              <RobotControl :step="10" :rot-step="5" />
+            </div>
+          </div>
+
           <!-- 自动检测模式说明 -->
           <div class="auto-detect-tip">
             <el-alert
@@ -312,10 +328,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../api'
+import RobotControl from '../components/RobotControl.vue'
 import {
   ArrowLeft, ArrowRight, VideoCamera, Position, Aim,
   CircleCheck, CircleClose, Refresh, Check, Camera, Search, InfoFilled
@@ -356,6 +373,60 @@ const detecting = ref(false)
 
 // 检测到的目标点
 const detectedTarget = ref(null)
+
+// 相机预览
+const cameraFrame = ref('')
+let ws = null
+
+// 初始化 WebSocket 连接
+const initSocket = () => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host
+  const wsUrl = `${protocol}//${host}/ws/camera`
+
+  ws = new WebSocket(wsUrl)
+
+  ws.onopen = () => {
+    console.log('WebSocket 已连接')
+  }
+
+  ws.onerror = (error) => {
+    console.error('WebSocket 连接错误:', error)
+  }
+
+  ws.onclose = () => {
+    console.log('WebSocket 已断开')
+  }
+
+  ws.onmessage = (event) => {
+    if (event.data) {
+      // 检查是否是 FPS 数据
+      if (event.data.startsWith('{"type":"fps"')) {
+        // FPS 数据，跳过
+      } else {
+        cameraFrame.value = event.data
+      }
+    }
+  }
+}
+
+// 停止相机流
+const stopCameraStream = () => {
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+}
+
+onMounted(() => {
+  // 进入页面时启动相机预览
+  initSocket()
+})
+
+onUnmounted(() => {
+  // 离开页面时停止相机预览
+  stopCameraStream()
+})
 
 // 验证结果
 const verificationResult = reactive({
@@ -574,11 +645,41 @@ const finishVerification = () => {
   color: #999;
 }
 
+.camera-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .verify-controls {
   display: flex;
   justify-content: center;
   gap: 15px;
   margin-top: 20px;
+}
+
+.preview-section {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.preview-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.preview-right {
+  width: 320px;
+  flex-shrink: 0;
+}
+
+.camera-preview-container {
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .auto-detect-tip {

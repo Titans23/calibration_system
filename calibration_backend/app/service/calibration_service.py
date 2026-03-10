@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 import numpy as np
 from matplotlib import pyplot as plt
+import math
 
 from app.models import (
     DeviceStatus, CalibrationResult, CalibrationConfig,
@@ -666,3 +667,49 @@ def calculate_corner_base(
         "y": base_coord[1]*1000,
         "z": base_coord[2]*1000,
     }
+
+def move_robot_by_keyword(keyword: str)->RobotPoseClass:
+    """根据关键词移动机械臂
+
+    Args:
+        keyword: 预设位置关键词，如 "home", "calibration_point", "test_point" 等
+
+    Returns:
+        移动结果，包括目标位姿和当前位姿
+    """
+    robot = get_robot_device()
+    robot.connect()
+    tcp_pose = robot.get_current_pose().to_list()  # 获取当前 TCP 位姿
+    robot_config = get_robot_config()
+    step = robot_config.get("step")
+    rot_step = math.radians(robot_config.get("rot_step"))
+    if keyword == "px":
+        tcp_pose[0] += step
+    elif keyword == "nx":
+        tcp_pose[0] -= step
+    elif keyword == "py":
+        tcp_pose[1] += step
+    elif keyword == "ny":
+        tcp_pose[1] -= step
+    elif keyword == "pz":
+        tcp_pose[2] += step
+    elif keyword == "nz":
+        tcp_pose[2] -= step
+    elif keyword == "prx":
+        tcp_pose[3] += rot_step
+    elif keyword == "nrx":
+        tcp_pose[3] -= rot_step
+    elif keyword == "pry":
+        tcp_pose[4] += rot_step
+    elif keyword == "nry":
+        tcp_pose[4] -= rot_step
+    elif keyword == "prz":
+        tcp_pose[5] += rot_step
+    elif keyword == "nrz":
+        tcp_pose[5] -= rot_step
+    else:
+        raise ValueError(f"未知的移动关键词: {keyword}")
+    print(f"移动到 {tcp_pose}")
+    pose = RobotPoseClass.from_list(tcp_pose)
+    robot.move_to(pose)
+    return pose

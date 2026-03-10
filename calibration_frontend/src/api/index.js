@@ -83,6 +83,23 @@ const api = {
     return request.post('/calibration/clear')
   },
 
+  // 机械臂移动关键词
+  moveRobotByKeyword: (keyword) => {
+    return request.post('/calibration/move_by_keyword', {
+      keyword: keyword
+    })
+  },
+
+  // 获取机械臂当前位姿
+  getRobotPose: () => {
+    return request.get('/calibration/robot_pose')
+  },
+
+  // 移动机械臂到指定位姿
+  moveRobot: (pose) => {
+    return request.post('/robot/move', pose)
+  },
+
   // ===== 验证相关 =====
 
   // 获取标定信息
@@ -100,20 +117,11 @@ const api = {
     return request.post('/verification/target', position)
   },
 
-  // 移动到目标点
-  moveToTarget: (position) => {
-    return request.post('/verification/move-to-target', position)
-  },
-
   // 检测目标点（自动计算3D坐标）
   detectTarget: () => {
     return request.post('/verification/detect-target')
   },
 
-  // 自动检测目标点并移动机械臂
-  autoDetectAndMove: () => {
-    return request.post('/verification/auto-detect-and-move')
-  }
 }
 
 export default api

@@ -140,26 +140,6 @@ def verify_target(position: TargetPosition) -> Dict[str, Any]:
     }
 
 
-# ========== 移动到目标位置 ==========
-
-def move_to_target(position: TargetPosition) -> Dict[str, Any]:
-    """移动机械臂到目标位置
-
-    Args:
-        position: 目标位置
-
-    Returns:
-        移动结果
-    """
-    # TODO: 实现实际的机械臂运动逻辑
-    # 实际项目中会控制调用机械臂 SDK
-    return {
-        "target": position.model_dump(),
-        "moved": True
-    }
-
-
-
 def detect_target_point() -> Dict[str, Any]:
     """仅检测标定板角点位置，不移动机械臂
 

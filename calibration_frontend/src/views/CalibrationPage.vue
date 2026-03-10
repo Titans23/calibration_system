@@ -22,17 +22,22 @@
           <p>请确保以下设备已正确连接并准备就绪，点击检查设备后可查看相机画面</p>
         </div>
 
-        <!-- 相机预览 - 步骤1也显示 -->
+        <!-- 相机预览 + 机械臂控制 - 步骤1显示 -->
         <div class="preview-section">
-          <div class="preview-container">
-            <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
-            <div v-else class="preview-placeholder">
-              <el-icon :size="48"><VideoCamera /></el-icon>
-              <p>相机实时预览</p>
+          <div class="preview-left">
+            <div class="preview-container">
+              <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
+              <div v-else class="preview-placeholder">
+                <el-icon :size="48"><VideoCamera /></el-icon>
+                <p>相机实时预览</p>
+              </div>
+              <div class="fps-display" v-if="fps > 0">
+                <span>FPS: {{ fps }}</span>
+              </div>
             </div>
-            <div class="fps-display" v-if="fps > 0">
-              <span>FPS: {{ fps }}</span>
-            </div>
+          </div>
+          <div class="preview-right">
+            <RobotControl :step="10" :rot-step="5" />
           </div>
         </div>
 
@@ -118,33 +123,40 @@
           <p>移动机械臂到不同位置，点击"采集数据"按钮获取标定数据</p>
         </div>
 
-        <!-- 实时预览 -->
+        <!-- 实时预览 + 机械臂控制 -->
         <div class="preview-section">
-          <div class="preview-container">
-            <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
-            <div v-else class="preview-placeholder">
-              <el-icon :size="48"><VideoCamera /></el-icon>
-              <p>相机实时预览</p>
-            </div>
-            <div class="fps-display">
-              <span>FPS: {{ fps }}</span>
+          <div class="preview-left">
+            <div class="preview-container">
+              <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
+              <div v-else class="preview-placeholder">
+                <el-icon :size="48"><VideoCamera /></el-icon>
+                <p>相机实时预览</p>
+              </div>
+              <div class="fps-display">
+                <span>FPS: {{ fps }}</span>
+              </div>
             </div>
           </div>
 
-          <div class="capture-info">
-            <div class="progress-info">
-              <span>已采集: </span>
-              <el-tag type="primary">{{ capturedCount }} / {{ requiredCount }}</el-tag>
-            </div>
-            <div class="progress-bar-container">
-              <el-progress
-                :percentage="captureProgress"
-                :stroke-width="10"
-                :show-text="false"
-              />
-            </div>
-            <p class="text-secondary">建议采集 {{ requiredCount }} 组数据以获得最佳精度</p>
+          <div class="preview-right">
+            <RobotControl :step="10" :rot-step="5" />
           </div>
+        </div>
+
+        <!-- 采集信息（独立显示） -->
+        <div class="capture-info">
+          <div class="progress-info">
+            <span>已采集: </span>
+            <el-tag type="primary">{{ capturedCount }} / {{ requiredCount }}</el-tag>
+          </div>
+          <div class="progress-bar-container">
+            <el-progress
+              :percentage="captureProgress"
+              :stroke-width="10"
+              :show-text="false"
+            />
+          </div>
+          <p class="text-secondary">建议采集 {{ requiredCount }} 组数据以获得最佳精度</p>
         </div>
 
         <!-- 采集控制 -->
@@ -250,6 +262,7 @@ import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../api'
+import RobotControl from '../components/RobotControl.vue'
 import {
   Camera, Connection, Picture, Refresh, ArrowLeft, ArrowRight,
   VideoCamera, Delete, Loading, CircleCheck, CircleClose
@@ -275,9 +288,9 @@ const checking = ref(false)
 
 // 标定板参数（用户可修改）
 const boardConfig = reactive({
-  board_width: 10,
-  board_height: 7,
-  square_size: 0.02  // 单位: 米
+  board_width: 8,
+  board_height: 11,
+  square_size: 0.005  // 单位: 米
 })
 
 // 采集状态
@@ -554,6 +567,16 @@ onUnmounted(() => {
   margin: 20px 0;
 }
 
+.preview-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.preview-right {
+  width: 320px;
+  flex-shrink: 0;
+}
+
 .preview-container {
   position: relative;
   flex: 1;
@@ -593,7 +616,8 @@ onUnmounted(() => {
 }
 
 .capture-info {
-  width: 300px;
+  max-width: 600px;
+  margin: 20px auto;
 }
 
 .progress-bar-container {

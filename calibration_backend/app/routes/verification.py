@@ -39,17 +39,6 @@ async def verify_target(position: TargetPosition):
     }
 
 
-@router.post("/move-to-target")
-async def move_to_target(position: TargetPosition):
-    """移动机械臂到目标位置"""
-    result = verification_service.move_to_target(position)
-    return {
-        "code": 200,
-        "message": f"已移动到目标位置 ({position.x}, {position.y}, {position.z})",
-        "data": result
-    }
-
-
 @router.post("/detect-target")
 async def detect_target_point():
     """检测标定板角点位置（自动计算3D坐标）

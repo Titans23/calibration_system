@@ -96,3 +96,36 @@ async def clear_calibration_data():
         "code": 200,
         "message": "已清空所有数据"
     }
+
+@router.post("/move_by_keyword")
+async def move_robot_by_keyword(data: dict):
+    """移动机械臂到指定位姿
+
+    Args:
+        data: 请求体，包含 keyword 字段
+
+    Request Body:
+        {"keyword": "px"}
+    """
+    keyword = data.get("keyword")
+    if not keyword:
+        raise ValueError("缺少 keyword 参数")
+
+    pose = calibration_service.move_robot_by_keyword(keyword)
+    return {
+        "code": 200,
+        "message": "机械臂移动完成",
+        "data": pose.to_dict_mm()  
+    }
+
+
+@router.get("/robot_pose")
+async def get_robot_pose():
+    """获取机械臂当前位姿"""
+    robot = calibration_service.get_robot_device()
+    robot.connect()
+    pose = robot.get_current_pose()
+    return {
+        "code": 200,
+        "data": pose.to_dict_mm()
+    }

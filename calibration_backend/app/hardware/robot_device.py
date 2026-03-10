@@ -38,6 +38,20 @@ class RobotPose:
             "ry": self.ry,
             "rz": self.rz
         }
+    
+    def to_dict_mm(self) -> Dict[str, float]:
+        """转换为字典，单位为 mm"""
+        return {
+            "x": self.x * 1000,
+            "y": self.y * 1000,
+            "z": self.z * 1000,
+            "rx": self.rx,
+            "ry": self.ry,
+            "rz": self.rz
+        }
+    def to_list_mm(self) -> List[float]:
+        """转换为列表 [x, y, z, rx, ry, rz]，单位为 mm"""
+        return [self.x * 1000, self.y * 1000, self.z * 1000, self.rx, self.ry, self.rz]
 
     @classmethod
     def from_dict(cls, data: Dict[str, float]) -> 'RobotPose':
@@ -74,11 +88,11 @@ class RobotDevice(ABC):
         # 加载配置
         if config is None:
             config = get_robot_config()
-
+        self.config = config
         self._connected = False
-        self._host = config.get('ip', '192.168.1.100')
-        self._port = config.get('port', 8080)
-        self._default_speed = config.get('default_speed', 100.0)
+        self._host = config.get('ip')
+        self._port = config.get('port')
+        self._default_speed = config.get('default_speed')
         self._current_pose = RobotPose(x=100, y=0, z=200, rx=0, ry=0, rz=0)
 
     @abstractmethod
@@ -149,10 +163,12 @@ class MockRobotDevice(RobotDevice):
             host: 机器人IP，如果为 None 则使用配置中的IP
             port: 机器人端口，如果为 None 则使用配置中的端口
         """
+        if self._connected:
+            return True
         self._host = host if host is not None else self._host
         self._port = port if port is not None else self._port
         self._connected = True
-        self._current_pose = RobotPose(x=100, y=0, z=200, rx=0, ry=0, rz=0)
+        self._current_pose = RobotPose(x=0.2, y=0, z=0.2, rx=0, ry=0, rz=0)
         logger.info(f"MockRobot 连接: {self._host}:{self._port}")
         return True
 
@@ -169,7 +185,7 @@ class MockRobotDevice(RobotDevice):
             return self._current_pose
         return None
 
-    def move_to(self, pose: RobotPose, speed: float = 100.0) -> bool:
+    def move_to(self, pose: RobotPose, speed: float = 0.1) -> bool:
         if self._connected:
             self._current_pose = pose
             return True
@@ -190,6 +206,8 @@ class UR5eRobotDevice(RobotDevice):
             host: 机器人IP，如果为 None 则使用配置中的IP
             port: 机器人端口，如果为 None 则使用配置中的端口
         """
+        if self._connected:
+            return True
         self._host = host if host is not None else self._host
         cnt = 0
         max_retry = 5
@@ -223,13 +241,13 @@ class UR5eRobotDevice(RobotDevice):
 
     def get_current_pose(self) -> Optional[RobotPose]:
         if self._connected:
-            self._current_pose = self.rtde_r.getActualTCPPose()
+            self._current_pose = self.rtde_r.getActualTCPPose()  # 得到的单位为m
             return self._current_pose
         return None
 
-    def move_to(self, pose: RobotPose, speed: float = 100.0) -> bool:
-        # TODO : 实现 UR5e 机械臂的移动逻辑，目前不需要
+    def move_to(self, pose: RobotPose, speed: float = 0.01) -> bool:
         if self._connected:
             self._current_pose = pose
+            self.rtde_c.moveL(pose.to_list(), speed=0.2, acceleration=0.2)
             return True
         return False

@@ -27,14 +27,17 @@ robot:
   ip: "192.168.1.100"
   # 机器人端口
   port: 8080
-  # 默认移动速度 (0-100)
-  default_speed: 100.0
-
+  # 默认移动速度 (0-100) m
+  default_speed: 0.01
+  # 每次平移步长 (m)
+  step: 0.01
+  # 每次旋转步长 (rad)
+  rot_step: 5
 # 标定板配置
 # calibration_board:
 #   # 角点列数
-#   board_width: 9
+#   board_width: 8
 #   # 角点行数
-#   board_height: 6
-#   # 角点间距（毫米）
-#   square_size: 25.0
+#   board_height: 11
+#   # 角点间距（米）
+#   square_size: 0.005.0
