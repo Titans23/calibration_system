@@ -583,11 +583,11 @@ def calculate_corner_base(
 
     # 获取相机
     camera = get_camera_device()
-    camera.connect()
-    camera.start_grabbing()
+    # camera.connect()
+    # camera.start_grabbing()
     # 拍摄图像
     img = camera.get_frame()
-    camera.disconnect()
+    # camera.disconnect()
     if img is None:
         raise ValueError("无法获取相机图像")
     pattern_size = (board_height, board_width)
