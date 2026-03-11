@@ -95,11 +95,6 @@ const api = {
     return request.get('/calibration/robot_pose')
   },
 
-  // 移动机械臂到指定位姿
-  moveRobot: (pose) => {
-    return request.post('/robot/move', pose)
-  },
-
   // ===== 验证相关 =====
 
   // 获取标定信息

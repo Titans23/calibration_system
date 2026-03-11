@@ -25,16 +25,10 @@
         <!-- 相机预览 + 机械臂控制 - 步骤1显示 -->
         <div class="preview-section">
           <div class="preview-left">
-            <div class="preview-container">
-              <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
-              <div v-else class="preview-placeholder">
-                <el-icon :size="48"><VideoCamera /></el-icon>
-                <p>相机实时预览</p>
-              </div>
-              <div class="fps-display" v-if="fps > 0">
-                <span>FPS: {{ fps }}</span>
-              </div>
-            </div>
+            <CameraPreview
+              ref="cameraPreviewRef1"
+              placeholder-text="相机实时预览"
+            />
           </div>
           <div class="preview-right">
             <RobotControl :step="10" :rot-step="5" />
@@ -110,16 +104,10 @@
         <!-- 实时预览 + 机械臂控制 -->
         <div class="preview-section">
           <div class="preview-left">
-            <div class="preview-container">
-              <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
-              <div v-else class="preview-placeholder">
-                <el-icon :size="48"><VideoCamera /></el-icon>
-                <p>相机实时预览</p>
-              </div>
-              <div class="fps-display">
-                <span>FPS: {{ fps }}</span>
-              </div>
-            </div>
+            <CameraPreview
+              ref="cameraPreviewRef2"
+              placeholder-text="相机实时预览"
+            />
           </div>
 
           <div class="preview-right">
@@ -242,22 +230,22 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 import RobotControl from '../components/RobotControl.vue'
+import CameraPreview from '../components/CameraPreview.vue'
 import {
   Camera, Connection, Picture, Refresh, ArrowLeft, ArrowRight,
-  VideoCamera, Delete, Loading, CircleCheck, CircleClose
+  Delete, Loading, CircleCheck, CircleClose
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
-// WebSocket 连接
-let ws = null
-const cameraFrame = ref('')
-const fps = ref(0)
+// 相机预览组件引用
+const cameraPreviewRef1 = ref(null)
+const cameraPreviewRef2 = ref(null)
 
 // 当前步骤
 const currentStep = ref(0)
@@ -300,52 +288,6 @@ const allDevicesReady = computed(() => {
   return deviceStatus.camera && deviceStatus.robot && deviceStatus.board
 })
 
-// 初始化 WebSocket 连接
-const initSocket = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
-  const wsUrl = `${protocol}//${host}/ws/camera`
-
-  ws = new WebSocket(wsUrl)
-
-  ws.onopen = () => {
-    console.log('WebSocket 已连接')
-  }
-
-  ws.onerror = (error) => {
-    console.error('WebSocket 连接错误:', error)
-  }
-
-  ws.onclose = () => {
-    console.log('WebSocket 已断开')
-  }
-
-  ws.onmessage = (event) => {
-    if (event.data) {
-      // 检查是否是 FPS 数据
-      if (event.data.startsWith('{"type":"fps"')) {
-        const data = JSON.parse(event.data)
-        fps.value = data.value
-      } else {
-        cameraFrame.value = event.data
-      }
-    }
-  }
-}
-
-// 启动相机流
-const startCameraStream = () => {
-  // WebSocket 连接后后端会自动启动相机
-  console.log('准备接收相机流...')
-}
-
-// 停止相机流
-const stopCameraStream = () => {
-  if (ws) {
-    ws.close()
-  }
-}
-
 // 检查设备 - 调用后端 API
 const checkDevices = async () => {
   checking.value = true
@@ -379,8 +321,6 @@ const startCalibration = async () => {
 // 返回上一步
 const backToStep1 = () => {
   currentStep.value = 0
-  // 停止相机流
-  stopCameraStream()
 }
 
 // 采集数据 - 调用后端 API
@@ -425,9 +365,6 @@ const clearData = async () => {
 
 // 计算标定 - 调用后端 API
 const calculateCalibration = async () => {
-  // 停止相机流
-  stopCameraStream()
-
   currentStep.value = 2
   calculating.value = true
   calcProgress.value = 0
@@ -474,20 +411,6 @@ const retryCalibration = async () => {
 const goToVerification = () => {
   router.push('/verification')
 }
-
-// 组件挂载时初始化 WebSocket 并启动相机流
-onMounted(() => {
-  initSocket()
-  // 页面加载后立即启动相机流，方便查看标定板
-  startCameraStream()
-})
-
-// 组件卸载时清理
-onUnmounted(() => {
-  if (ws) {
-    stopCameraStream()
-  }
-})
 </script>
 
 <style scoped>

@@ -200,7 +200,7 @@ class UR5eRobotDevice(RobotDevice):
         logger.info(f"UR5eRobotDevice 初始化: ip={self._host}, port={self._port}, default_speed={self._default_speed}")
 
     def connect(self, host: str = None, port: int = None) -> bool:
-        """模拟连接机器人
+        """连接ur5e机器人
 
         Args:
             host: 机器人IP，如果为 None 则使用配置中的IP

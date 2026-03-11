@@ -22,17 +22,7 @@
         </div>
 
         <div class="verification-options">
-          <el-radio-group v-model="verificationType">
-            <el-radio-button value="reprojection">
-              <div class="option-content">
-                <el-icon :size="32"><Aim /></el-icon>
-                <div>
-                  <h4>重投影验证</h4>
-                  <p class="text-secondary">通过重投影误差评估标定精度</p>
-                </div>
-              </div>
-            </el-radio-button>
-
+          <el-radio-group>
             <el-radio-button value="target">
               <div class="option-content">
                 <el-icon :size="32"><Position /></el-icon>
@@ -67,39 +57,16 @@
       <!-- 步骤2: 执行验证 -->
       <div v-show="currentStep === 1" class="step-section">
         <div class="instruction-box">
-          <h4>{{ verificationType === 'reprojection' ? '重投影验证' : '目标点验证' }}</h4>
-          <p>{{ verificationType === 'reprojection' ? '系统将计算所有标定数据的重投影误差' : '请移动机械臂到指定位置进行验证' }}</p>
-        </div>
-
-        <!-- 重投影验证界面 -->
-        <div v-if="verificationType === 'reprojection'" class="reprojection-section">
-          <div class="preview-container">
-            <div class="preview-placeholder">
-              <el-icon :size="48"><VideoCamera /></el-icon>
-              <p>标定板图像</p>
-            </div>
-          </div>
-
-          <div class="verify-controls">
-            <el-button type="primary" size="large" @click="runReprojectionVerify" :loading="verifying">
-              <el-icon><VideoCamera /></el-icon>
-              计算重投影误差
-            </el-button>
-          </div>
+          <h4>目标点验证</h4>
+          <p>请移动机械臂到指定位置进行验证</p>
         </div>
 
         <!-- 目标点验证界面 -->
-        <div v-else class="target-section">
+        <div class="target-section">
           <!-- 相机预览 + 机械臂控制 -->
           <div class="preview-section">
             <div class="preview-left">
-              <div class="camera-preview-container">
-                <img v-if="cameraFrame" :src="cameraFrame" class="camera-preview" alt="Camera Preview" />
-                <div v-else class="preview-placeholder">
-                  <el-icon :size="48"><VideoCamera /></el-icon>
-                  <p>等待相机连接...</p>
-                </div>
-              </div>
+              <CameraPreview />
             </div>
             <div class="preview-right">
               <RobotControl :step="10" :rot-step="5" />
@@ -178,14 +145,6 @@
               </el-descriptions>
             </div>
 
-            <!-- 一键确认移动按钮 -->
-            <div class="confirm-move-btn">
-              <el-button type="primary" size="large" @click="confirmAndMove" :loading="moving">
-                <el-icon><Position /></el-icon>
-                确认移动到目标点
-              </el-button>
-            </div>
-
             <!-- 坐标差异说明 -->
             <div class="coord-diff">
               <p class="text-secondary">
@@ -211,55 +170,9 @@
 
       <!-- 步骤3: 验证结果 -->
       <div v-show="currentStep === 2" class="step-section">
-        <!-- 重投影验证结果 -->
-        <div v-if="verificationType === 'reprojection'" class="result-section">
-          <div class="result-box" :class="{ error: !verificationResult.pass }">
-            <el-icon :size="48" :color="verificationResult.pass ? '#52c41a' : '#f5222d'">
-              <CircleCheck v-if="verificationResult.pass" />
-              <CircleClose v-else />
-            </el-icon>
-            <h3>{{ verificationResult.pass ? '验证通过' : '验证未通过' }}</h3>
-          </div>
-
-          <div class="result-details">
-            <h4>验证详情</h4>
-            <el-descriptions :column="1" border>
-              <el-descriptions-item label="平均误差">
-                <el-tag :type="verificationResult.avgError < 0.5 ? 'success' : 'warning'">
-                  {{ verificationResult.avgError }} mm
-                </el-tag>
-              </el-descriptions-item>
-              <el-descriptions-item label="最大误差">
-                <el-tag :type="verificationResult.maxError < 1.0 ? 'success' : 'danger'">
-                  {{ verificationResult.maxError }} mm
-                </el-tag>
-              </el-descriptions-item>
-              <el-descriptions-item label="标准差">{{ verificationResult.stdDev }} mm</el-descriptions-item>
-              <el-descriptions-item label="验证点数">{{ verificationResult.pointCount }}</el-descriptions-item>
-            </el-descriptions>
-          </div>
-
-          <!-- 误差图表 -->
-          <div class="error-chart">
-            <h4>误差分布</h4>
-            <div class="chart-placeholder">
-              <el-table :data="errorData" style="width: 100%" max-height="200">
-                <el-table-column prop="index" label="序号" width="80" />
-                <el-table-column prop="error" label="误差 (mm)" />
-                <el-table-column prop="status" label="状态">
-                  <template #default="scope">
-                    <el-tag :type="scope.row.error < 0.5 ? 'success' : 'warning'" size="small">
-                      {{ scope.row.error < 0.5 ? '合格' : '偏高' }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-          </div>
-        </div>
 
         <!-- 目标点验证结果 -->
-        <div v-else class="result-section">
+        <div class="result-section">
           <div class="result-box" :class="{ error: !verificationResult.pass }">
             <el-icon :size="48" :color="verificationResult.pass ? '#52c41a' : '#f5222d'">
               <CircleCheck v-if="verificationResult.pass" />
@@ -301,13 +214,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 import RobotControl from '../components/RobotControl.vue'
+import CameraPreview from '../components/CameraPreview.vue'
 import {
-  ArrowLeft, ArrowRight, VideoCamera, Position, Aim,
+  ArrowLeft, ArrowRight, Position,
   CircleCheck, CircleClose, Refresh, Check, Camera, Search, InfoFilled
 } from '@element-plus/icons-vue'
 
@@ -316,8 +230,6 @@ const router = useRouter()
 // 当前步骤
 const currentStep = ref(0)
 
-// 验证类型
-const verificationType = ref('reprojection')
 
 // 是否有标定结果
 const hasCalibration = ref(false)
@@ -346,60 +258,6 @@ const detecting = ref(false)
 
 // 检测到的目标点
 const detectedTarget = ref(null)
-
-// 相机预览
-const cameraFrame = ref('')
-let ws = null
-
-// 初始化 WebSocket 连接
-const initSocket = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
-  const wsUrl = `${protocol}//${host}/ws/camera`
-
-  ws = new WebSocket(wsUrl)
-
-  ws.onopen = () => {
-    console.log('WebSocket 已连接')
-  }
-
-  ws.onerror = (error) => {
-    console.error('WebSocket 连接错误:', error)
-  }
-
-  ws.onclose = () => {
-    console.log('WebSocket 已断开')
-  }
-
-  ws.onmessage = (event) => {
-    if (event.data) {
-      // 检查是否是 FPS 数据
-      if (event.data.startsWith('{"type":"fps"')) {
-        // FPS 数据，跳过
-      } else {
-        cameraFrame.value = event.data
-      }
-    }
-  }
-}
-
-// 停止相机流
-const stopCameraStream = () => {
-  if (ws) {
-    ws.close()
-    ws = null
-  }
-}
-
-onMounted(() => {
-  // 进入页面时启动相机预览
-  initSocket()
-})
-
-onUnmounted(() => {
-  // 离开页面时停止相机预览
-  stopCameraStream()
-})
 
 // 验证结果
 const verificationResult = reactive({
@@ -440,35 +298,6 @@ const startVerification = () => {
   currentStep.value = 1
 }
 
-// 运行重投影验证 - 调用后端 API
-const runReprojectionVerify = async () => {
-  verifying.value = true
-  try {
-    const res = await api.verifyReprojection()
-    const result = res.result
-    const errorList = res.error_data
-
-    verificationResult.pass = result.pass
-    verificationResult.avgError = result.avg_error
-    verificationResult.maxError = result.max_error
-    verificationResult.stdDev = result.std_dev
-    verificationResult.pointCount = result.point_count
-
-    errorData.value = errorList.map(item => ({
-      index: item.index,
-      error: item.error,
-      status: item.status
-    }))
-
-    currentStep.value = 2
-    ElMessage.success('验证完成')
-  } catch (error) {
-    ElMessage.error('验证失败: ' + (error.message || '请先完成标定'))
-  } finally {
-    verifying.value = false
-  }
-}
-
 
 // 自动检测目标点 - 调用后端 API
 const autoDetectTarget = async () => {
@@ -489,24 +318,6 @@ const autoDetectTarget = async () => {
     ElMessage.error('检测失败: ' + (error.message || '请确保标定板在视野内'))
   } finally {
     detecting.value = false
-  }
-}
-
-// 确认并移动到目标点
-const confirmAndMove = async () => {
-  moving.value = true
-  try {
-    await api.moveToTarget({
-      x: targetForm.x,
-      y: targetForm.y,
-      z: targetForm.z,
-      rx: targetForm.rx
-    })
-    ElMessage.success('已移动到目标点')
-  } catch (error) {
-    ElMessage.error('移动失败')
-  } finally {
-    moving.value = false
   }
 }
 
