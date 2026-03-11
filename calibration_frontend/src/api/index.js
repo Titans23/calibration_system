@@ -54,8 +54,8 @@ const api = {
   },
 
   // 开始标定
-  startCalibration: (config) => {
-    return request.post('/calibration/start', config)
+  startCalibration: () => {
+    return request.post('/calibration/start')
   },
 
   // 采集数据

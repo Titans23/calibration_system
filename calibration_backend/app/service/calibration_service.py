@@ -13,13 +13,13 @@ from matplotlib import pyplot as plt
 import math
 
 from app.models import (
-    DeviceStatus, CalibrationResult, CalibrationConfig,
+    DeviceStatus, CalibrationResult,
     CalibrationData, RobotPose
 )
 from app.algorithm.hand_eye_calibrator import HandEyeCalibrator
-from app.hardware.camera_device import CameraDevice, MockCameraDevice, RealCameraDevice,DobotCameraDevice
+from app.hardware.camera_device import CameraDevice, MockCameraDevice,DobotCameraDevice
 from app.hardware.robot_device import RobotDevice, RobotPose as RobotPoseClass, MockRobotDevice,UR5eRobotDevice
-from app.config import get_robot_config,get_camera_config
+from app.config import get_robot_config,get_camera_config,get_calibration_board_config
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # 数据文件路径
 DATA_DIR = Path(__file__).parent.parent / "data"
 ORIGIN_DATA_FILE = DATA_DIR / "origin_data.txt"
-IMG_DIR = DATA_DIR / "img"
+IMG_DIR = DATA_DIR / "image"
 CALIB_RESULT_DIR = DATA_DIR / "calib_result"
 
 # 确保目录存在
@@ -45,8 +45,6 @@ def get_camera_device() -> CameraDevice:
         camera_type = get_camera_config().get("type")
         if camera_type == "mock":
             _camera_device = MockCameraDevice()  # 实际项目中替换为真实相机类
-        elif camera_type == "real":
-            _camera_device = RealCameraDevice()  # 实际项目中替换为真实相机类
         elif camera_type == "dobot":
             _camera_device = DobotCameraDevice()  # 实际项目中替换为 Dobot 相机类
         else:
@@ -118,7 +116,7 @@ def get_device_status() -> DeviceStatus:
 
 def check_devices() -> DeviceStatus:
     """检查设备连接状态"""
-    global _device_status
+    global _device_status,_calibration_config
     logging.info("检查设备连接状态...")
 
     # 获取设备实例
@@ -127,22 +125,33 @@ def check_devices() -> DeviceStatus:
 
     # 连接相机
     camera_connected = camera.connect()
-    if camera_connected:
+
+    # 启动相机采集（如果尚未启动）
+    if camera_connected and not camera._grabbing:
         camera.start_grabbing()
 
     # 连接机器人
     robot_connected = robot.connect()
 
+    # 标定配置
+    _calibration_config = get_calibration_board_config()
+    logger.info(f"标定配置: {_calibration_config}")
+
     # 检查标定板（通过相机检测）
     board_detected = False
-    if camera_connected:
+    if camera_connected and camera._grabbing:
         frame = camera.get_frame()
         if frame is not None:
-            board_width = _calibration_config.get("board_width", 10) if _calibration_config else 10
-            board_height = _calibration_config.get("board_height", 7) if _calibration_config else 7
+            board_width = _calibration_config.get("board_width")
+            board_height = _calibration_config.get("board_height")
             detected, _ = camera.detect_calibration_board(frame, board_width, board_height)
             board_detected = detected
 
+    # _device_status = DeviceStatus(
+    #     camera=True,
+    #     robot=True,
+    #     board=True
+    # )
     _device_status = DeviceStatus(
         camera=camera_connected,
         robot=robot_connected,
@@ -154,7 +163,7 @@ def check_devices() -> DeviceStatus:
 
 # ========== 标定流程相关 ==========
 
-def start_calibration(config: CalibrationConfig) -> Dict[str, Any]:
+def start_calibration() -> Dict[str, Any]:
     """开始标定
 
     Args:
@@ -163,14 +172,11 @@ def start_calibration(config: CalibrationConfig) -> Dict[str, Any]:
     Returns:
         标定启动结果
     """
-    global _calibration_data, _calibration_result,_calibration_config
+    global _calibration_data, _calibration_result
     _calibration_data = []
     _calibration_result = None
-    _calibration_config = config.model_dump()
-    logger.info(f"开始标定, 配置: board={_calibration_config.get('board_width')}x{_calibration_config.get('board_height')}, square_size={_calibration_config.get('square_size')}m")
 
     return {
-        "config": _calibration_config,
         "capture_count": 0
     }
 
@@ -208,10 +214,11 @@ def capture_calibration_data(data: CalibrationData) -> Dict[str, Any]:
     frame = camera.get_frame()
     if frame is None:
         raise ValueError("无法获取相机图像")
+    
 
     # 检测标定板角点
-    board_width = _calibration_config.get("board_width", 10) if _calibration_config else 10
-    board_height = _calibration_config.get("board_height", 7) if _calibration_config else 7
+    board_width = _calibration_config.get("board_width")
+    board_height = _calibration_config.get("board_height")
 
     detected, corners = camera.detect_calibration_board(frame, board_width, board_height)
 
@@ -270,9 +277,9 @@ def calculate_calibration() -> Dict[str, Any]:
     logger.info(f"开始计算标定, 数据组数: {len(_calibration_data)}")
 
     # 获取标定配置
-    board_width = _calibration_config.get("board_width", 10) if _calibration_config else 10
-    board_height = _calibration_config.get("board_height", 7) if _calibration_config else 7
-    square_size = _calibration_config.get("square_size", 0.020) if _calibration_config else 0.020
+    board_width = _calibration_config.get("board_width")
+    board_height = _calibration_config.get("board_height")
+    square_size = _calibration_config.get("square_size")
 
     # 尝试使用真实手眼标定算法
     try:
@@ -544,8 +551,9 @@ def start_camera_stream() -> bool:
         是否成功启动
     """
     camera = get_camera_device()
-    if not camera.is_connected():
+    if not camera._connected:
         camera.connect()
+    # start_grabbing 内部已经有状态检查，不会重复启动
     return camera.start_grabbing()
 
 
@@ -562,9 +570,9 @@ def stop_camera_stream() -> bool:
 # ========== 目标点验证相关 ==========
 
 def calculate_corner_base(
-    board_width: int = 10,
-    board_height: int = 7,
-    square_size: float = 0.020
+    board_width: int,
+    board_height: int,
+    square_size: float
 ) -> Dict[str, Any]:
     # 检查标定结果
     if _calibration_result is None:

@@ -2,8 +2,8 @@
 
 # 相机配置
 camera:
-  # 相机类型: mock, real,dobot.
-  type: "real"
+  # 相机类型: mock,dobot.
+  type: "mock"
   # 相机 IP 地址（真实相机使用）
   ip: "192.168.1.64"
   # 相机端口
@@ -34,10 +34,12 @@ robot:
   # 每次旋转步长 (rad)
   rot_step: 5
 # 标定板配置
-# calibration_board:
-#   # 角点列数
-#   board_width: 8
-#   # 角点行数
-#   board_height: 11
-#   # 角点间距（米）
-#   square_size: 0.005.0
+calibration_board:
+  # 角点列数（实际8）
+  board_width: 7
+  # 角点行数（实际11）
+  board_height: 10
+  # 角点间距（米）（实际0.005）
+  square_size: 0.02
+  # 标定所需的图片数量
+  img_count: 12

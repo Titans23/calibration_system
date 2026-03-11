@@ -241,7 +241,7 @@ class UR5eRobotDevice(RobotDevice):
 
     def get_current_pose(self) -> Optional[RobotPose]:
         if self._connected:
-            self._current_pose = self.rtde_r.getActualTCPPose()  # 得到的单位为m
+            self._current_pose = RobotPose.from_list(self.rtde_r.getActualTCPPose())  # 得到的单位为m
             return self._current_pose
         return None
 

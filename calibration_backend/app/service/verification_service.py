@@ -8,6 +8,7 @@ from app.models import (
     VerificationResult, TargetPosition
 )
 import app.service.calibration_service
+from app.config import get_calibration_board_config
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -161,10 +162,13 @@ def detect_target_point() -> Dict[str, Any]:
 
     # 获取标定配置
     calib_config = calib_service._calibration_config
-    board_width = calib_config.get("board_width", 10) if calib_config else 10
-    board_height = calib_config.get("board_height", 7) if calib_config else 7
-    square_size = calib_config.get("square_size", 0.020) if calib_config else 0.020
+    if calib_config is None:
+        calib_service._calibration_config = get_calibration_board_config()
+        calib_config = calib_service._calibration_config
 
+    board_width = calib_config.get("board_width")
+    board_height = calib_config.get("board_height")
+    square_size = calib_config.get("square_size")
     # 获取当前机械臂位姿
     robot = calib_service.get_robot_device()
     robot.connect()
@@ -174,7 +178,6 @@ def detect_target_point() -> Dict[str, Any]:
         raise ValueError("无法获取机械臂当前位姿")
 
     pose_dict = current_pose.to_dict()
-
     # 检查当前姿态：建议RX、RY接近0（末端与基座X、Y轴对齐）
     rx = pose_dict.get("rx", 0)
     ry = pose_dict.get("ry", 0)
@@ -198,14 +201,7 @@ def detect_target_point() -> Dict[str, Any]:
     return {
         "detected": True,
         "corner_base": corner_base,
-        "current_pose": {
-            "x": round(pose_dict.get("x", 0), 2),
-            "y": round(pose_dict.get("y", 0), 2),
-            "z": round(pose_dict.get("z", 0), 2),
-            "rx": round(rx, 2),
-            "ry": round(ry, 2),
-            "rz": round(rz, 2)
-        },
+        "current_pose": current_pose.to_dict_mm(),
         "is_aligned": is_aligned,
         "alignment_tip": alignment_tip,
         "target_pose": {

@@ -137,120 +137,8 @@ class CameraDevice(ABC):
         except Exception:
             return False
 
-
-class MockCameraDevice(CameraDevice):
-    """模拟相机设备，用于测试和开发"""
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """初始化模拟相机
-
-        Args:
-            config: 相机配置字典，如果为 None 则从 config.yaml 加载
-        """
-        super().__init__(config)
-
-        # 预生成的噪声图像
-        self._noise = None
-        # 预生成的棋盘格模板
-        self._chessboard = None
-
-        logger.info(f"MockCameraDevice 初始化: exposure={self._exposure}, gain={self._gain}, resolution={self._width}x{self._height}")
-
-    def connect(self) -> bool:
-        """模拟连接相机"""
-        self._connected = True
-        return True
-
-    def disconnect(self) -> bool:
-        """模拟断开相机"""
-        self._connected = False
-        self._grabbing = False
-        return True
-
-    def start_grabbing(self) -> bool:
-        if self._connected:
-            self._grabbing = True
-            return True
-        return False
-
-    def stop_grabbing(self) -> bool:
-        self._grabbing = False
-        return True
-    
-    # 用于测试将detect_calibration_board重写为模拟检测功能，返回固定的角点数据
-    def detect_calibration_board(self, image: np.ndarray, board_width: int, board_height: int) -> Tuple[bool, Optional[np.ndarray]]:
-        """模拟检测标定板
-
-        Args:
-            image: 输入图像
-            board_width: 棋盘格内角点宽度
-            board_height: 棋盘格内角点高度
-
-        Returns:
-            (是否成功, 角点数据) - 角点数据shape为(N, 1, 2)
-        """
-        if image is None or image.size == 0:
-            return False, None
-
-        # 返回模拟的角点数据，shape必须为(N, 1, 2)以匹配OpenCV格式
-        corners = np.zeros((board_width * board_height, 1, 2))
-        for i in range(board_height):
-            for j in range(board_width):
-                corners[i * board_width + j] = [[j * 20 + 10, i * 20 + 10]]
-        return True, corners
-
-    def get_frame(self) -> Optional[np.ndarray]:
-        """返回模拟的动态黑白相间图像"""
-        if self._connected and self._grabbing:
-            self._frame_count += 1
-
-            width = self._width
-            height = self._height
-            square_size = 40
-
-            # 每60帧（约2秒）随机改变方向，使运动更连贯
-            if self._frame_count % 60 == 0:
-                self._direction = np.random.choice(['left', 'right', 'up', 'down'])
-
-            # 懒加载预生成资源
-            if self._chessboard is None:
-                # 预生成棋盘格
-                x = np.arange(width)
-                y = np.arange(height)
-                xx, yy = np.meshgrid(x, y)
-                self._chessboard = ((((xx // square_size) + (yy // square_size)) % 2) * 255).astype(np.uint8)
-                self._direction = 'right'
-                self._offset_x = 0
-                self._offset_y = 0
-
-            # 使用累加偏移实现平滑移动
-            if self._direction == 'right':
-                self._offset_x = (self._offset_x + 2) % width
-            elif self._direction == 'left':
-                self._offset_x = (self._offset_x - 2) % width
-            elif self._direction == 'up':
-                self._offset_y = (self._offset_y - 2) % height
-            elif self._direction == 'down':
-                self._offset_y = (self._offset_y + 2) % height
-
-            # 使用 scipy ndimage 进行更平滑的平移
-            from scipy import ndimage
-            rolled = ndimage.shift(self._chessboard, [self._offset_y, self._offset_x], mode='wrap')
-            rolled = rolled.astype(np.uint8)
-
-            # 添加噪声
-            if self._noise is None or self._frame_count % 30 == 0:
-                self._noise = np.random.randint(-10, 10, (height, width), dtype=np.int16)
-
-            image = np.clip(rolled.astype(np.int16) + self._noise, 0, 255).astype(np.uint8)
-
-            # 转换为3通道
-            image = np.stack([image, image, image], axis=2)
-
-            return image
-        return None
         
-class RealCameraDevice(CameraDevice):
+class MockCameraDevice(CameraDevice):
     """真实相机设备，使用 OpenCV 进行操作"""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -262,7 +150,11 @@ class RealCameraDevice(CameraDevice):
         logger.info(f"RealCameraDevice 初始化: exposure={self._exposure}, gain={self._gain}, resolution={self._width}x{self._height}, test_images={len(self._img_files)}")
     def connect(self) -> bool:
         """模拟连接相机"""
+        if self._connected:
+            logger.info("RealCameraDevice 已连接，跳过重复连接")
+            return True
         self._connected = True
+        logger.info("RealCameraDevice 连接成功")
         return True
 
     def disconnect(self) -> bool:
@@ -274,7 +166,12 @@ class RealCameraDevice(CameraDevice):
 
     def start_grabbing(self) -> bool:
         if self._connected:
+            # 如果已经在采集，直接返回成功
+            if self._grabbing:
+                logger.info("RealCameraDevice 已在采集中，跳过重复启动")
+                return True
             self._grabbing = True
+            logger.info("RealCameraDevice 开始采集")
             return True
         return False
 
@@ -331,6 +228,11 @@ class DobotCameraDevice(CameraDevice):
             bool: 连接是否成功
         """
         try:
+            # 如果已经连接，直接返回成功
+            if self._connected and self._cam is not None:
+                logger.info("越疆相机已连接，跳过重复连接")
+                return True
+
             from MvImport.MvCameraControl_class import (
                 MvCamera, MV_CC_DEVICE_INFO_LIST, MV_CC_DEVICE_INFO,
                 MV_GIGE_DEVICE, MV_USB_DEVICE, MV_ACCESS_Exclusive
@@ -452,6 +354,11 @@ class DobotCameraDevice(CameraDevice):
             if not self._connected or self._cam is None:
                 logger.error("相机未连接，无法开始采集")
                 return False
+
+            # 如果已经在采集，直接返回成功
+            if self._grabbing:
+                logger.info("越疆相机已在采集中，跳过重复启动")
+                return True
 
             # 开始取流
             ret = self._cam.MV_CC_StartGrabbing()

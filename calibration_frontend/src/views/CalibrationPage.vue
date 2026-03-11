@@ -88,22 +88,6 @@
           </div>
         </div>
 
-        <!-- 标定板参数配置 -->
-        <div class="board-config">
-          <h4>标定板参数</h4>
-          <el-form :inline="true" label-width="100px">
-            <el-form-item label="角点列数">
-              <el-input-number v-model="boardConfig.board_width" :min="5" :max="15" />
-            </el-form-item>
-            <el-form-item label="角点行数">
-              <el-input-number v-model="boardConfig.board_height" :min="4" :max="12" />
-            </el-form-item>
-            <el-form-item label="方格尺寸(m)">
-              <el-input-number v-model="boardConfig.square_size" :min="0.001" :max="0.1" :step="0.001" :precision="3" />
-            </el-form-item>
-          </el-form>
-        </div>
-
         <div class="action-buttons">
           <el-button type="primary" size="large" @click="checkDevices" :loading="checking">
             <el-icon><Refresh /></el-icon>
@@ -286,13 +270,6 @@ const deviceStatus = reactive({
 })
 const checking = ref(false)
 
-// 标定板参数（用户可修改）
-const boardConfig = reactive({
-  board_width: 8,
-  board_height: 11,
-  square_size: 0.005  // 单位: 米
-})
-
 // 采集状态
 const capturing = ref(false)
 const capturedCount = ref(0)
@@ -390,8 +367,13 @@ const checkDevices = async () => {
 }
 
 // 开始标定 - 调用后端 API
-const startCalibration = () => {
-  currentStep.value = 1
+const startCalibration = async () => {
+  try {
+    const res = await api.startCalibration()
+    currentStep.value = 1
+  } catch (error) {
+    ElMessage.error('开始标定失败')
+  }
 }
 
 // 返回上一步

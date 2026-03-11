@@ -118,7 +118,7 @@
                 1. 将机械臂末端调整为 RX≈0°, RY≈0°（与基座X、Y轴对齐）<br>
                 2. 将标定板平铺在水平桌面上<br>
                 3. 点击"自动检测目标点"计算坐标<br>
-                4. 确认目标坐标后，点击"确认移动到目标点"或手动输入坐标移动
+                4. 确认目标坐标后，手动移动到指定坐标验证
               </template>
             </el-alert>
           </div>
@@ -199,33 +199,6 @@
 
           <el-divider v-if="detectedTarget" />
 
-          <div class="target-input" :class="{ 'with-detection': detectedTarget }">
-            <h4>手动输入目标点坐标</h4>
-            <el-form :model="targetForm" label-width="80px">
-              <el-row :gutter="20">
-                <el-col :span="12">
-                  <el-form-item label="X (mm)">
-                    <el-input-number v-model="targetForm.x" :min="-500" :max="500" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="Y (mm)">
-                    <el-input-number v-model="targetForm.y" :min="-500" :max="500" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="Z (mm)">
-                    <el-input-number v-model="targetForm.z" :min="0" :max="500" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="RX (°)">
-                    <el-input-number v-model="targetForm.rx" :min="-180" :max="180" />
-                  </el-form-item>
-                </el-col>
-              </el-row>
-            </el-form>
-          </div>
         </div>
 
         <div class="action-buttons">

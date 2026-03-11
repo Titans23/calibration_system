@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException
 import logging
 from app.models import (
-    CalibrationConfig, CalibrationData
+     CalibrationData
 )
 from app.service import calibration_service
 
@@ -31,9 +31,9 @@ async def check_devices():
 
 
 @router.post("/start")
-async def start_calibration(config: CalibrationConfig):
+async def start_calibration():
     """开始标定"""
-    result = calibration_service.start_calibration(config)
+    result = calibration_service.start_calibration()
 
     return {
         "code": 200,
