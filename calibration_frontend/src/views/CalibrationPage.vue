@@ -19,7 +19,7 @@
       <div v-show="currentStep === 0" class="step-section">
         <div class="instruction-box">
           <h4>准备阶段</h4>
-          <p>请确保以下设备已正确连接并准备就绪，点击检查设备后可查看相机画面</p>
+          <p>请确保以下设备已正确连接并准备就绪，点击检查设备后可进行数据采集</p>
         </div>
 
         <!-- 相机预览 + 机械臂控制 - 步骤1显示 -->
@@ -72,7 +72,7 @@
             </div>
             <div class="device-info">
               <h4>标定板</h4>
-              <p class="text-secondary">9x6 角点标定板</p>
+              <p class="text-secondary">hxw 角点标定板</p>
             </div>
             <div class="device-status">
               <el-tag :type="deviceStatus.board ? 'success' : 'warning'">
@@ -98,7 +98,7 @@
       <div v-show="currentStep === 1" class="step-section">
         <div class="instruction-box">
           <h4>数据采集</h4>
-          <p>移动机械臂到不同位置，点击"采集数据"按钮获取标定数据</p>
+          <p>移动机械臂到不同位置（x,y,z,rx,ry,rz均需要移动），点击"采集数据"按钮获取标定数据</p>
         </div>
 
         <!-- 实时预览 + 机械臂控制 -->
@@ -209,7 +209,7 @@
           <el-descriptions :column="2" border>
             <el-descriptions-item label="标定方法">{{ calibrationResult.method }}</el-descriptions-item>
             <el-descriptions-item label="数据组数">{{ calibrationResult.data_count }}</el-descriptions-item>
-            <el-descriptions-item label="重投影误差">{{ calibrationResult.reprojection_error }} mm</el-descriptions-item>
+            <!-- <el-descriptions-item label="重投影误差">{{ calibrationResult.reprojection_error }} mm</el-descriptions-item> -->
             <el-descriptions-item label="标定时间">{{ calibrationResult.calibration_time }}</el-descriptions-item>
           </el-descriptions>
         </div>

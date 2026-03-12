@@ -41,7 +41,7 @@
           <el-descriptions :column="2" border>
             <el-descriptions-item label="标定时间">{{ calibrationInfo.time }}</el-descriptions-item>
             <el-descriptions-item label="数据组数">{{ calibrationInfo.dataCount }}</el-descriptions-item>
-            <el-descriptions-item label="重投影误差">{{ calibrationInfo.error }}</el-descriptions-item>
+            <!-- <el-descriptions-item label="重投影误差">{{ calibrationInfo.error }}</el-descriptions-item> -->
             <el-descriptions-item label="标定方法">{{ calibrationInfo.method }}</el-descriptions-item>
           </el-descriptions>
         </div>
@@ -154,6 +154,14 @@
                 ΔZ={{ (detectedTarget.target_pose?.z - detectedTarget.current_pose?.z).toFixed(1) }}mm
               </p>
             </div>
+
+            <!-- 移动到目标点按钮 -->
+            <div class="confirm-move-btn">
+              <el-button type="primary" size="large" @click="moveToTarget" :loading="moving">
+                <el-icon><Promotion /></el-icon>
+                移动到目标点
+              </el-button>
+            </div>
           </div>
 
           <el-divider v-if="detectedTarget" />
@@ -222,7 +230,7 @@ import RobotControl from '../components/RobotControl.vue'
 import CameraPreview from '../components/CameraPreview.vue'
 import {
   ArrowLeft, ArrowRight, Position,
-  CircleCheck, CircleClose, Refresh, Check, Camera, Search, InfoFilled
+  CircleCheck, CircleClose, Refresh, Check, Camera, Search, InfoFilled, Promotion
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -251,10 +259,8 @@ const targetForm = reactive({
 })
 
 // 状态
-const verifying = ref(false)
-const moving = ref(false)
-const capturing = ref(false)
 const detecting = ref(false)
+const moving = ref(false)
 
 // 检测到的目标点
 const detectedTarget = ref(null)
@@ -321,28 +327,27 @@ const autoDetectTarget = async () => {
   }
 }
 
-// 拍摄验证 - 调用后端 API
-const captureVerify = async () => {
-  capturing.value = true
+// 移动到目标点
+const moveToTarget = async () => {
+  if (!detectedTarget.value?.target_pose) return
+
+  moving.value = true
   try {
-    const res = await api.verifyTarget({
-      x: targetForm.x,
-      y: targetForm.y,
-      z: targetForm.z,
-      rx: targetForm.rx
-    })
+    const res = await api.moveToTarget(detectedTarget.value.target_pose)
 
-    verificationResult.pass = res.pass
-    positionCompare.value = res.position_compare
+    // 更新当前姿态显示
+    if (res.new_pose) {
+      detectedTarget.value.current_pose = res.new_pose
+    }
 
-    currentStep.value = 2
-    ElMessage.success('验证完成')
+    ElMessage.success('已移动到目标点')
   } catch (error) {
-    ElMessage.error('验证失败: ' + (error.message || '请先完成标定'))
+    ElMessage.error('移动失败: ' + (error.message || '请检查机械臂连接'))
   } finally {
-    capturing.value = false
+    moving.value = false
   }
 }
+
 
 // 重新验证
 const retryVerification = () => {

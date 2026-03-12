@@ -102,19 +102,14 @@ const api = {
     return request.get('/verification/info')
   },
 
-  // 重投影验证
-  verifyReprojection: () => {
-    return request.post('/verification/reprojection')
-  },
-
-  // 目标点验证
-  verifyTarget: (position) => {
-    return request.post('/verification/target', position)
-  },
-
   // 检测目标点（自动计算3D坐标）
   detectTarget: () => {
     return request.post('/verification/detect-target')
+  },
+
+  // 移动机械臂到目标点
+  moveToTarget: (targetPose) => {
+    return request.post('/verification/move-to-target', targetPose)
   },
 
 }
